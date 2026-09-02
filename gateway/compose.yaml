@@ -85,7 +85,7 @@ services:
     networks: [backend]
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.4.5@sha256:653852bfdea2be6e958b9e90a976eff1c6de34edd55f2f679bdc48ef16bc528e
+    image: quay.io/keycloak/keycloak:26.7.3@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
     profiles: [dev-idp]
     command: ["start-dev", "--import-realm", "--health-enabled=true"]
     environment:
