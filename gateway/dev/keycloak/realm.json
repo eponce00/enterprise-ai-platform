@@ -23,7 +23,7 @@
       "directAccessGrantsEnabled": true,
       "redirectUris": ["http://127.0.0.1:*", "http://localhost:*"],
       "webOrigins": ["+"],
-      "defaultClientScopes": ["profile", "email", "roles", "web-origins"],
+      "defaultClientScopes": ["basic", "profile", "email", "roles", "web-origins"],
       "protocolMappers": [
         {
           "name": "gateway-audience",
@@ -60,6 +60,7 @@
       "serviceAccountsEnabled": true,
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
+      "defaultClientScopes": ["basic", "roles"],
       "protocolMappers": [
         {
           "name": "gateway-audience",

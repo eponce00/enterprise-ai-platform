@@ -29,7 +29,7 @@ opt-in because they require deployment credentials.
 
 ## In progress
 
-- Record the first public CI run after repository publication.
+- Validate the live-provider and organizational-IdP paths in protected staging.
 
 ## Next
 

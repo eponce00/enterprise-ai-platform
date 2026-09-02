@@ -10,15 +10,18 @@ function requiredEnvironment(name: string): string {
   return value
 }
 
+const tokenFields = new URLSearchParams({
+  grant_type: "client_credentials",
+  client_id: requiredEnvironment("OIDC_CLIENT_ID"),
+  client_secret: requiredEnvironment("OIDC_CLIENT_SECRET"),
+})
+const requestedScope = process.env.OIDC_SCOPE?.trim()
+if (requestedScope) tokenFields.set("scope", requestedScope)
+
 const tokenResponse = await fetch(requiredEnvironment("OIDC_TOKEN_URL"), {
   method: "POST",
   headers: { "content-type": "application/x-www-form-urlencoded" },
-  body: new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: requiredEnvironment("OIDC_CLIENT_ID"),
-    client_secret: requiredEnvironment("OIDC_CLIENT_SECRET"),
-    scope: process.env.OIDC_SCOPE ?? "",
-  }),
+  body: tokenFields,
 })
 if (!tokenResponse.ok) throw new Error(`OIDC token request failed: ${tokenResponse.status}`)
 const { access_token: accessToken } = await tokenResponse.json() as TokenResponse

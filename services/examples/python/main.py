@@ -9,14 +9,17 @@ from openai import OpenAI
 
 
 def service_token() -> str:
+    token_fields = {
+        "grant_type": "client_credentials",
+        "client_id": os.environ["OIDC_CLIENT_ID"],
+        "client_secret": os.environ["OIDC_CLIENT_SECRET"],
+    }
+    if requested_scope := os.getenv("OIDC_SCOPE", "").strip():
+        token_fields["scope"] = requested_scope
+
     response = httpx.post(
         os.environ["OIDC_TOKEN_URL"],
-        data={
-            "grant_type": "client_credentials",
-            "client_id": os.environ["OIDC_CLIENT_ID"],
-            "client_secret": os.environ["OIDC_CLIENT_SECRET"],
-            "scope": os.getenv("OIDC_SCOPE", ""),
-        },
+        data=token_fields,
         timeout=10,
     )
     response.raise_for_status()

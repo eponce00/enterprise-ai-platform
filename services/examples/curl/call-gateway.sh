@@ -6,12 +6,20 @@ set -eu
 : "${OIDC_CLIENT_SECRET:?set OIDC_CLIENT_SECRET}"
 : "${GATEWAY_URL:?set GATEWAY_URL}"
 
-TOKEN="$(curl --fail --silent --show-error \
-  --data-urlencode grant_type=client_credentials \
-  --data-urlencode client_id="$OIDC_CLIENT_ID" \
-  --data-urlencode client_secret="$OIDC_CLIENT_SECRET" \
-  --data-urlencode scope="${OIDC_SCOPE:-}" \
-  "$OIDC_TOKEN_URL" | jq -er .access_token)"
+if [ -n "${OIDC_SCOPE:-}" ]; then
+  TOKEN="$(curl --fail --silent --show-error \
+    --data-urlencode grant_type=client_credentials \
+    --data-urlencode client_id="$OIDC_CLIENT_ID" \
+    --data-urlencode client_secret="$OIDC_CLIENT_SECRET" \
+    --data-urlencode scope="$OIDC_SCOPE" \
+    "$OIDC_TOKEN_URL" | jq -er .access_token)"
+else
+  TOKEN="$(curl --fail --silent --show-error \
+    --data-urlencode grant_type=client_credentials \
+    --data-urlencode client_id="$OIDC_CLIENT_ID" \
+    --data-urlencode client_secret="$OIDC_CLIENT_SECRET" \
+    "$OIDC_TOKEN_URL" | jq -er .access_token)"
+fi
 
 curl --fail --silent --show-error \
   -H "Authorization: Bearer $TOKEN" \
