@@ -7,9 +7,9 @@
     "start": "node --experimental-strip-types main.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
-  "dependencies": {"openai": "5.19.1"},
+  "dependencies": {"openai": "7.8.0"},
   "devDependencies": {
-    "@types/node": "22.20.1",
-    "typescript": "5.9.2"
+    "@types/node": "26.4.0",
+    "typescript": "7.0.2"
   }
 }
