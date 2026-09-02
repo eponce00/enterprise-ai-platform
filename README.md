@@ -54,10 +54,12 @@ Prerequisites: Docker with Compose, Python 3.10+, and Node.js 22.22.2+.
 ```sh
 cp .env.example .env
 
-docker compose -f gateway/compose.yaml -f gateway/compose.mock.yaml \
+docker compose --env-file .env \
+  -f gateway/compose.yaml -f gateway/compose.mock.yaml \
   --profile dev-idp --profile mock up --build --wait -d
 
-docker compose -f gateway/compose.yaml -f gateway/compose.mock.yaml \
+docker compose --env-file .env \
+  -f gateway/compose.yaml -f gateway/compose.mock.yaml \
   --profile mock --profile bootstrap run --rm bootstrap
 
 python -m pip install -e ".[dev,integration]"
@@ -65,10 +67,11 @@ npm ci --omit=dev --workspace services/examples/typescript --include-workspace-r
 pytest -m "integration and not real_provider" tests/e2e
 ```
 
-The local realm and its seeded credentials are development-only. The mock path
-does not make paid inference requests. If port `4000` is already in use, set a
-different `GATEWAY_HOST_PORT` in `.env` and point `E2E_GATEWAY_URL` at that port.
-See [the deployment guide](docs/deployment.md) for credentials, health checks,
+The `dev-idp` profile and its seeded Keycloak realm are strictly for local
+testing; never expose or reuse them in production. The mock path does not make
+paid inference requests. If port `4000` is already in use, set a different
+`GATEWAY_HOST_PORT` in `.env` and point `E2E_GATEWAY_URL` at that port. See
+[the deployment guide](docs/deployment.md) for credentials, health checks,
 cleanup, and production configuration.
 
 ## OpenCode
@@ -83,7 +86,9 @@ opencode auth login --provider organization --method "Company SSO"
 
 Organizations should rename the placeholder npm scope and publish it through
 their normal private package registry. See [OpenCode setup](docs/opencode-setup.md)
-for configuration and rollout guidance.
+for configuration and rollout guidance. When refresh-token rotation is required,
+the production IdP must allow `offline_access` for the registered OpenCode client
+and the applicable user authorization policy.
 
 ## Service clients
 

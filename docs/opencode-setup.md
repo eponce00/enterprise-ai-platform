@@ -10,7 +10,10 @@ opencode auth login --provider organization --method "Company SSO"
 
 Run `/models` to choose an approved model. Logical aliases remain available if
 the catalog cannot refresh. When a session expires, the plugin refreshes early;
-if the refresh token is revoked or missing, rerun the login command.
+if the refresh token is revoked or missing, rerun the login command. When
+refresh-token rotation is required, configure the production IdP to allow
+`offline_access` for the registered OpenCode client and the applicable user
+authorization policy.
 
 Organizations should rename the placeholder npm scope and publish to a private
 registry. Use normal npm registry authentication. The full configuration fallback

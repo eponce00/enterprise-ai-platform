@@ -2,27 +2,39 @@
 
 ## Local development
 
-Copy `.env.example` to `.env`, then start the free mock path:
+Copy `.env.example` to `.env`, then run the following commands from the
+repository root. Each Compose invocation supplies the root environment file
+explicitly because the primary Compose file is under `gateway/`.
 
 ```sh
-docker compose -f gateway/compose.yaml -f gateway/compose.mock.yaml \
+docker compose --env-file .env \
+  -f gateway/compose.yaml -f gateway/compose.mock.yaml \
   --profile dev-idp --profile mock up --build --wait
-docker compose -f gateway/compose.yaml -f gateway/compose.mock.yaml \
+docker compose --env-file .env \
+  -f gateway/compose.yaml -f gateway/compose.mock.yaml \
   --profile mock --profile bootstrap run --rm bootstrap
 python -m pip install -e ".[dev,integration]"
 npm ci --omit=dev --workspace services/examples/typescript --include-workspace-root=false
 pytest -m "integration and not real_provider" tests/e2e
 ```
 
-The development realm listens only on localhost. Seeded credentials are public
-test data and must never be reused:
+The `dev-idp` Keycloak profile is strictly a local testing fixture and is not a
+production identity provider. Its development realm listens only on localhost.
+Seeded credentials are public test data and must never be reused:
 
 - Keycloak administrator: `admin` / `development-only-admin`
 - Human: `developer` / `development-only-password`
 - Service client: `example-service` / `development-only-service-secret`
 
-Stop the stack with `docker compose ... down`. Add `--volumes` only when you
-intentionally want to erase the local PostgreSQL state.
+Stop the stack with:
+
+```sh
+docker compose --env-file .env \
+  -f gateway/compose.yaml -f gateway/compose.mock.yaml down
+```
+
+Add `--volumes` only when you intentionally want to erase the local PostgreSQL
+state.
 
 ## Production configuration
 
@@ -31,6 +43,8 @@ front of port 4000 and publish only HTTPS. Do not publish PostgreSQL. Configure:
 
 - random PostgreSQL and LiteLLM admin secrets from the existing secret manager;
 - an HTTPS issuer, audience, asymmetric algorithms, claim paths, and optional scopes;
+- a production IdP client and user authorization policy that allows
+  `offline_access` when OpenCode refresh-token rotation is required;
 - a policy reviewed by identity, security, finance, and service owners;
 - server-only provider keys and stable-alias target/base/key variables;
 - OpenRouter account guardrails as the non-overridable privacy floor.
@@ -49,7 +63,7 @@ catalog on the host:
 
 ```sh
 python -m catalog.sync --policy catalog/catalog-policy.yaml
-docker compose -f gateway/compose.yaml up -d --build --wait
+docker compose --env-file .env -f gateway/compose.yaml up -d --build --wait
 ```
 
 Compose mounts `catalog/generated/` read-only. Startup validates the artifact
@@ -65,7 +79,8 @@ Run the one-shot bootstrap after policy changes. It uses the documented LiteLLM
 management API, not database internals:
 
 ```sh
-docker compose -f gateway/compose.yaml --profile bootstrap run --rm bootstrap
+docker compose --env-file .env -f gateway/compose.yaml \
+  --profile bootstrap run --rm bootstrap
 ```
 
 It creates or updates team rows with model groups, monthly budgets, and RPM/TPM.

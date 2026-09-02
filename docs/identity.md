@@ -30,8 +30,11 @@ allowed-client list is not configured.
 The OpenCode plugin discovers the IdP, creates a PKCE verifier/challenge and
 random state, binds an ephemeral callback server to `127.0.0.1`, and returns the
 authorization URL through OpenCode's OAuth hook. It never collects a password.
-The IdP must allow the registered loopback redirect URI and issue refresh tokens
-for the requested offline-access scope.
+The IdP must allow the registered loopback redirect URI. When refresh-token
+rotation is required, the production IdP configuration must allow the
+`offline_access` scope for both the registered OpenCode client and the applicable
+user authorization policy; requesting the scope from the client is not sufficient
+if either policy denies it.
 
 For SSH/headless environments, add a standards-compliant device-flow method to
 the same plugin hook if the target IdP supports RFC 8628. Do not emulate device
