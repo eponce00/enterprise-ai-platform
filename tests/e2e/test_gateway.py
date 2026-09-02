@@ -14,6 +14,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from openai import APIError, APIStatusError, OpenAI
+from openai.types.chat import ChatCompletionFunctionToolParam
 
 pytestmark = pytest.mark.integration
 
@@ -37,6 +38,165 @@ def test_streaming(gateway_client: OpenAI) -> None:
         stream=True,
     )
     assert "".join(chunk.choices[0].delta.content or "" for chunk in stream if chunk.choices) == "mock stream"
+
+
+def test_streaming_tool_call_round_trip(gateway_client: OpenAI) -> None:
+    tools: list[ChatCompletionFunctionToolParam] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "description": "Look up a value",
+                "parameters": {"type": "object", "properties": {"value": {"type": "string"}}},
+            },
+        }
+    ]
+    stream = gateway_client.chat.completions.create(
+        model="general-fast",
+        messages=[{"role": "user", "content": "force-streaming-tool-call"}],
+        tools=tools,
+        stream=True,
+    )
+    call_id = ""
+    function_name = ""
+    function_arguments = ""
+    finish_reasons = []
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        choice = chunk.choices[0]
+        if choice.finish_reason:
+            finish_reasons.append(choice.finish_reason)
+        for tool_call in choice.delta.tool_calls or []:
+            call_id = tool_call.id or call_id
+            if tool_call.function:
+                function_name += tool_call.function.name or ""
+                function_arguments += tool_call.function.arguments or ""
+
+    assert call_id == "call_stream_mock"
+    assert function_name == "lookup"
+    assert json.loads(function_arguments) == {"value": "mock"}
+    assert "tool_calls" in finish_reasons
+
+    follow_up = gateway_client.chat.completions.create(
+        model="general-fast",
+        messages=[
+            {"role": "user", "content": "force-streaming-tool-call"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": function_name, "arguments": function_arguments},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": call_id, "content": "lookup-result=mock"},
+        ],
+        tools=tools,
+        stream=True,
+    )
+    content = "".join(chunk.choices[0].delta.content or "" for chunk in follow_up if chunk.choices)
+    assert content == "mock observed tool result: lookup-result=mock"
+
+
+def test_opencode_read_tool_streaming_round_trip(gateway_client: OpenAI) -> None:
+    read_path = "/workspace/fixtures/opencode-read.txt"
+    tools: list[ChatCompletionFunctionToolParam] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "read",
+                "description": "Read a file",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"filePath": {"type": "string"}},
+                    "required": ["filePath"],
+                },
+            },
+        }
+    ]
+    stream = gateway_client.chat.completions.create(
+        model="general-fast",
+        messages=[{"role": "user", "content": f"force-opencode-read-tool path={read_path}"}],
+        tools=tools,
+        stream=True,
+    )
+    call_id = ""
+    function_name = ""
+    function_arguments = ""
+    finish_reasons = []
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        choice = chunk.choices[0]
+        if choice.finish_reason:
+            finish_reasons.append(choice.finish_reason)
+        for tool_call in choice.delta.tool_calls or []:
+            call_id = tool_call.id or call_id
+            if tool_call.function:
+                function_name += tool_call.function.name or ""
+                function_arguments += tool_call.function.arguments or ""
+
+    assert call_id == "call_opencode_read"
+    assert function_name == "read"
+    assert json.loads(function_arguments) == {"filePath": read_path}
+    assert "tool_calls" in finish_reasons
+
+    follow_up = gateway_client.chat.completions.create(
+        model="general-fast",
+        messages=[
+            {"role": "user", "content": f"force-opencode-read-tool path={read_path}"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": function_name, "arguments": function_arguments},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": call_id, "content": "client-read-marker"},
+        ],
+        tools=tools,
+        stream=True,
+    )
+    content = "".join(chunk.choices[0].delta.content or "" for chunk in follow_up if chunk.choices)
+    assert content == "mock observed OpenCode read result: client-read-marker"
+
+
+def test_opencode_read_tool_requires_safe_path_and_advertised_function(gateway_client: OpenAI) -> None:
+    read_tools: list[ChatCompletionFunctionToolParam] = [
+        {
+            "type": "function",
+            "function": {"name": "read", "parameters": {"type": "object"}},
+        }
+    ]
+    invalid_path = gateway_client.chat.completions.create(
+        model="general-fast",
+        messages=[{"role": "user", "content": "force-opencode-read-tool path=/workspace/../secret"}],
+        tools=read_tools,
+        stream=True,
+    )
+    assert "".join(chunk.choices[0].delta.content or "" for chunk in invalid_path if chunk.choices) == "mock stream"
+
+    lookup_tools: list[ChatCompletionFunctionToolParam] = [
+        {
+            "type": "function",
+            "function": {"name": "lookup", "parameters": {"type": "object"}},
+        }
+    ]
+    unadvertised = gateway_client.chat.completions.create(
+        model="general-fast",
+        messages=[{"role": "user", "content": "force-opencode-read-tool path=/workspace/safe.txt"}],
+        tools=lookup_tools,
+        stream=True,
+    )
+    assert "".join(chunk.choices[0].delta.content or "" for chunk in unadvertised if chunk.choices) == "mock stream"
 
 
 def test_tool_call(gateway_client: OpenAI) -> None:
