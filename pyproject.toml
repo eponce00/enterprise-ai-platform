@@ -16,6 +16,11 @@ dependencies = [
   "PyYAML>=6.0,<7",
 ]
 
+[project.urls]
+Homepage = "https://github.com/eponce00/enterprise-ai-platform"
+Repository = "https://github.com/eponce00/enterprise-ai-platform.git"
+Issues = "https://github.com/eponce00/enterprise-ai-platform/issues"
+
 [project.optional-dependencies]
 dev = [
   "mypy>=1.17,<2",

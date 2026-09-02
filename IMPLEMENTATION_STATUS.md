@@ -29,7 +29,7 @@ opt-in because they require deployment credentials.
 
 ## In progress
 
-- Record a green full mock Compose E2E run once the local Docker engine is healthy.
+- Record the first public CI run after repository publication.
 
 ## Next
 
@@ -64,5 +64,5 @@ opt-in because they require deployment credentials.
 - A real OpenRouter request cannot be made without `OPENROUTER_API_KEY`.
 - Corporate end-to-end SSO cannot be certified without the target IdP configuration.
 - Example budget values are illustrative and require organizational approval.
-- This workstation's Docker Desktop engine currently returns HTTP 500, preventing
-  a final local run of the otherwise automated mock Compose acceptance suite.
+- Live-provider and corporate-IdP certification require protected deployment
+  credentials and an approved test environment.
