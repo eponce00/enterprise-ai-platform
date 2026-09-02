@@ -7,24 +7,35 @@ LiteLLM UserAPIKeyAuth object.
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import hmac
 import logging
 import os
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
+import yaml
 from fastapi import HTTPException, Request, status
 
 from .claims import extract_identity
 from .litellm_compat import LitellmUserRoles, UserAPIKeyAuth
 from .oidc import OIDCJWTValidator, OIDCUnavailableError, TokenValidationError
-from .policy import PolicyDenied, PolicyEngine, PolicyError
+from .policy import PolicyDecision, PolicyDenied, PolicyEngine, PolicyError
 from .settings import GatewaySettings, OIDCSettings, SettingsError
 
 logger = logging.getLogger(__name__)
 
 _validator: OIDCJWTValidator | None = None
 _policy: PolicyEngine | None = None
+_runtime_models: tuple[str, ...] | None = None
+
+_DEFAULT_RUNTIME_CONFIG = "/tmp/enterprise-ai-litellm.yaml"  # noqa: S108 - shared non-sensitive runtime config
+
+
+class _RuntimeModelConfigError(RuntimeError):
+    """The rendered LiteLLM config cannot provide a safe model inventory."""
 
 
 def _load() -> tuple[OIDCJWTValidator, PolicyEngine, GatewaySettings]:
@@ -35,6 +46,58 @@ def _load() -> tuple[OIDCJWTValidator, PolicyEngine, GatewaySettings]:
     if _policy is None:
         _policy = PolicyEngine.from_file(gateway.policy_file)
     return _validator, _policy, gateway
+
+
+def _load_runtime_models() -> tuple[str, ...]:
+    """Load exact model names from the rendered config used by LiteLLM."""
+
+    global _runtime_models
+    if _runtime_models is not None:
+        return _runtime_models
+
+    path = Path(os.getenv("LITELLM_RUNTIME_CONFIG", _DEFAULT_RUNTIME_CONFIG))
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        raise _RuntimeModelConfigError(f"cannot load LiteLLM runtime config: {path}") from exc
+
+    if not isinstance(document, Mapping):
+        raise _RuntimeModelConfigError("LiteLLM runtime config must be a mapping")
+    model_list = document.get("model_list")
+    if not isinstance(model_list, list) or not model_list:
+        raise _RuntimeModelConfigError("LiteLLM runtime config must contain a non-empty model_list")
+
+    models: list[str] = []
+    seen: set[str] = set()
+    for index, entry in enumerate(model_list):
+        if not isinstance(entry, Mapping):
+            raise _RuntimeModelConfigError(f"model_list entry {index} must be a mapping")
+        model_name = entry.get("model_name")
+        if not isinstance(model_name, str) or not model_name or model_name != model_name.strip():
+            raise _RuntimeModelConfigError(f"model_list entry {index} has an invalid model_name")
+        if any(character in model_name for character in "*?[]"):
+            raise _RuntimeModelConfigError(f"model_list entry {index} has a non-exact model_name")
+        # LiteLLM permits multiple deployments for one public model name.
+        if model_name not in seen:
+            seen.add(model_name)
+            models.append(model_name)
+
+    _runtime_models = tuple(models)
+    return _runtime_models
+
+
+def _authorized_runtime_models(
+    decision: PolicyDecision,
+    runtime_models: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Expand policy patterns against the exact configured runtime inventory."""
+
+    return tuple(
+        model
+        for model in runtime_models
+        if any(fnmatch.fnmatchcase(model, pattern) for pattern in decision.allowed_models)
+        and not any(fnmatch.fnmatchcase(model, pattern) for pattern in decision.denied_models)
+    )
 
 
 async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
@@ -72,8 +135,20 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         decision = policy.resolve(identity)
         body = await _request_json(request)
         model = str(body.get("model") or "")
+        runtime_models = _load_runtime_models()
+        if model and model not in runtime_models:
+            raise PolicyDenied(f"model {model!r} is not configured by the gateway runtime")
         if model:
             policy.authorize_model(decision, model)
+        authorized_models = _authorized_runtime_models(decision, runtime_models)
+        if not authorized_models:
+            raise PolicyDenied("team has no authorized models in the gateway runtime")
+    except _RuntimeModelConfigError as exc:
+        logger.exception("LiteLLM runtime model configuration is invalid")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="authentication unavailable",
+        ) from exc
     except OIDCUnavailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -114,7 +189,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         user_role=LitellmUserRoles.INTERNAL_USER,
         team_id=decision.team,
         team_alias=decision.team,
-        models=list(decision.allowed_models),
+        models=list(authorized_models),
         # Do not copy the team grant or budget onto the token. LiteLLM treats a
         # non-empty team_models value as a snapshot that may vouch for a team
         # when its Prisma lookup fails. Team policy must come from the DB row so
@@ -170,6 +245,7 @@ def _safe_telemetry_value(value: str) -> str:
 
 def reset_runtime_caches() -> None:
     """Test helper; production processes build each cache once."""
-    global _validator, _policy
+    global _validator, _policy, _runtime_models
     _validator = None
     _policy = None
+    _runtime_models = None

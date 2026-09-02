@@ -5,6 +5,15 @@ the organization-published plugin:
 
 ```sh
 opencode plugin @organization/opencode-ai@0.1.0 --global
+```
+
+Before login, the platform administrator must replace the generated string-only
+plugin entry with the managed tuple from
+`clients/opencode/example-config/opencode.json`, populated with the production
+gateway URL, OIDC issuer, and client ID. The plugin deliberately has no generic
+network defaults. Once that configuration is present, run:
+
+```sh
 opencode auth login --provider organization --method "Company SSO"
 ```
 
@@ -16,8 +25,9 @@ refresh-token rotation is required, configure the production IdP to allow
 authorization policy.
 
 Organizations should rename the placeholder npm scope and publish to a private
-registry. Use normal npm registry authentication. The full configuration fallback
-is in `clients/opencode/example-config/opencode.json`.
+registry. Use normal npm registry authentication. Environment variables with
+the `ENTERPRISE_AI_` prefix are supported for staging automation, but managed
+OpenCode configuration is the recommended user rollout path.
 
 Set `exclusiveProvider:true` in managed configuration to hide other providers
 from this OpenCode installation. This is an accidental-use control, not a device

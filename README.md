@@ -81,14 +81,20 @@ plugin package:
 
 ```sh
 opencode plugin @organization/opencode-ai@0.1.0 --global
-opencode auth login --provider organization --method "Company SSO"
 ```
 
 Organizations should rename the placeholder npm scope and publish it through
-their normal private package registry. See [OpenCode setup](docs/opencode-setup.md)
-for configuration and rollout guidance. When refresh-token rotation is required,
-the production IdP must allow `offline_access` for the registered OpenCode client
-and the applicable user authorization policy.
+their normal private package registry. Before login, deploy the managed plugin
+configuration containing the gateway URL, issuer, and client ID; then run:
+
+```sh
+opencode auth login --provider organization --method "Company SSO"
+```
+
+See [OpenCode setup](docs/opencode-setup.md) for the configuration and rollout
+sequence. When refresh-token rotation is required, the production IdP must allow
+`offline_access` for the registered OpenCode client and the applicable user
+authorization policy.
 
 ## Service clients
 

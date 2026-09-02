@@ -48,15 +48,35 @@ def request(token: str, body: dict[str, Any] | None = None) -> Request:
 
 
 @pytest.fixture(autouse=True)
-def clean(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+def clean(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     reset_runtime_caches()
     monkeypatch.setenv("OIDC_POLICY_FILE", str(tmp_path / "unused.yaml"))
     monkeypatch.setenv("LITELLM_MASTER_KEY", "admin-secret")
+    runtime_config = tmp_path / "litellm-runtime.yaml"
+    write_runtime_config(runtime_config, ["general-fast", "cheap-batch"])
+    monkeypatch.setenv("LITELLM_RUNTIME_CONFIG", str(runtime_config))
     yield
     reset_runtime_caches()
 
 
-def set_runtime(claims: dict[str, Any]) -> None:
+def write_runtime_config(path: Path, models: list[str]) -> None:
+    path.write_text(
+        yaml.safe_dump({"model_list": [{"model_name": model} for model in models]}),
+        encoding="utf-8",
+    )
+
+
+def set_runtime(
+    claims: dict[str, Any],
+    *,
+    developer_allow: list[str] | None = None,
+    developer_deny: list[str] | None = None,
+) -> None:
+    developer_models: dict[str, list[str]] = {
+        "allow": ["general-fast"] if developer_allow is None else developer_allow
+    }
+    if developer_deny is not None:
+        developer_models["deny"] = developer_deny
     auth_module._validator = StaticValidator(claims)  # type: ignore[assignment]
     auth_module._policy = PolicyEngine(
         {
@@ -66,7 +86,7 @@ def set_runtime(claims: dict[str, Any]) -> None:
                 {"oidc_group": "developers", "kind": "human", "team": "developers"},
             ],
             "teams": {
-                "developers": {"monthly_budget_usd": 20, "models": {"allow": ["general-fast"]}},
+                "developers": {"monthly_budget_usd": 20, "models": developer_models},
                 "automation": {"models": {"allow": ["cheap-batch"]}},
             },
             "privacy_profiles": {"default": {"zdr": True, "data_collection": "deny"}},
@@ -185,7 +205,164 @@ async def test_oidc_dependency_failure_is_retryable() -> None:
     assert caught.value.detail == "authentication unavailable"
 
 
-async def test_master_key_remains_available_for_bootstrap() -> None:
+async def test_policy_patterns_expand_to_exact_runtime_models(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_config = tmp_path / "expanded-runtime.yaml"
+    write_runtime_config(
+        runtime_config,
+        ["coding-fast", "coding-frontier", "general-fast", "cheap-batch"],
+    )
+    monkeypatch.setenv("LITELLM_RUNTIME_CONFIG", str(runtime_config))
+    set_runtime(
+        {
+            "iss": "https://idp.example",
+            "sub": "user-1",
+            "exp": 4_000_000_000,
+            "groups": ["developers"],
+        },
+        developer_allow=["coding-*", "general-*", "openrouter/*"],
+        developer_deny=["coding-front*"],
+    )
+
+    result = await user_api_key_auth(request("raw.jwt.token"), "raw.jwt.token")
+
+    assert result.models == ["coding-fast", "general-fast"]
+    assert "coding-*" not in result.models
+    assert "openrouter/*" not in result.models
+
+
+async def test_policy_wildcard_cannot_authorize_unconfigured_raw_model() -> None:
+    set_runtime(
+        {
+            "iss": "https://idp.example",
+            "sub": "user-1",
+            "exp": 4_000_000_000,
+            "groups": ["developers"],
+        },
+        developer_allow=["general-fast", "openrouter/*"],
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        await user_api_key_auth(
+            request("raw.jwt.token", {"model": "openrouter/vendor/unapproved"}),
+            "raw.jwt.token",
+        )
+
+    assert caught.value.status_code == 403
+    assert "not configured by the gateway runtime" in caught.value.detail
+
+
+async def test_missing_runtime_config_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("LITELLM_RUNTIME_CONFIG", str(tmp_path / "missing.yaml"))
+    set_runtime(
+        {
+            "iss": "https://idp.example",
+            "sub": "user-1",
+            "exp": 4_000_000_000,
+            "groups": ["developers"],
+        }
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        await user_api_key_auth(request("raw.jwt.token"), "raw.jwt.token")
+
+    assert caught.value.status_code == 503
+    assert caught.value.detail == "authentication unavailable"
+
+
+async def test_empty_runtime_catalog_cannot_fall_through_to_raw_wildcards(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_config = tmp_path / "empty-runtime.yaml"
+    write_runtime_config(runtime_config, [])
+    monkeypatch.setenv("LITELLM_RUNTIME_CONFIG", str(runtime_config))
+    set_runtime(
+        {
+            "iss": "https://idp.example",
+            "sub": "user-1",
+            "exp": 4_000_000_000,
+            "groups": ["developers"],
+        },
+        developer_allow=["openrouter/*"],
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        await user_api_key_auth(
+            request("raw.jwt.token", {"model": "openrouter/vendor/unapproved"}),
+            "raw.jwt.token",
+        )
+
+    assert caught.value.status_code == 503
+    assert caught.value.detail == "authentication unavailable"
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        "model_list: [",
+        "model_list: not-a-list\n",
+        "model_list:\n  - model_name: 'openrouter/*'\n",
+    ],
+)
+async def test_invalid_runtime_config_fails_closed(
+    contents: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_config = tmp_path / "invalid-runtime.yaml"
+    runtime_config.write_text(contents, encoding="utf-8")
+    monkeypatch.setenv("LITELLM_RUNTIME_CONFIG", str(runtime_config))
+    set_runtime(
+        {
+            "iss": "https://idp.example",
+            "sub": "user-1",
+            "exp": 4_000_000_000,
+            "groups": ["developers"],
+        }
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        await user_api_key_auth(request("raw.jwt.token"), "raw.jwt.token")
+
+    assert caught.value.status_code == 503
+    assert caught.value.detail == "authentication unavailable"
+
+
+async def test_reset_runtime_caches_reloads_model_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_config = tmp_path / "reload-runtime.yaml"
+    write_runtime_config(runtime_config, ["general-first"])
+    monkeypatch.setenv("LITELLM_RUNTIME_CONFIG", str(runtime_config))
+    claims = {
+        "iss": "https://idp.example",
+        "sub": "user-1",
+        "exp": 4_000_000_000,
+        "groups": ["developers"],
+    }
+    set_runtime(claims, developer_allow=["general-*"])
+    first = await user_api_key_auth(request("raw.jwt.token"), "raw.jwt.token")
+    assert first.models == ["general-first"]
+
+    write_runtime_config(runtime_config, ["general-second"])
+    reset_runtime_caches()
+    set_runtime(claims, developer_allow=["general-*"])
+    second = await user_api_key_auth(request("raw.jwt.token"), "raw.jwt.token")
+    assert second.models == ["general-second"]
+
+
+async def test_master_key_remains_available_for_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("LITELLM_RUNTIME_CONFIG", str(tmp_path / "missing.yaml"))
     set_runtime({})
     result = await user_api_key_auth(request("admin-secret"), "admin-secret")
     assert str(result.user_role).endswith("proxy_admin")

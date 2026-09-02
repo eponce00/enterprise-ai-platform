@@ -5,14 +5,14 @@ MIT-licensed plugin hooks; it does not patch or fork OpenCode.
 
 ```sh
 opencode plugin @organization/opencode-ai@0.1.0 --global
-opencode auth login --provider organization --method "Company SSO"
 ```
 
 An organization should rename the package before publishing it to its private
 registry. Registry credentials belong in normal npm configuration, never in
 OpenCode config.
 
-If installation-time options are needed:
+Before login, replace the generated string-only plugin entry with a configured
+tuple. The plugin has no generic gateway or identity-provider defaults:
 
 ```json
 {
@@ -29,6 +29,16 @@ If installation-time options are needed:
   ]]
 }
 ```
+
+Then authenticate:
+
+```sh
+opencode auth login --provider organization --method "Company SSO"
+```
+
+For an unpublished local tarball, OpenCode 1.18.26 requires an npm file spec
+with the exact form `file:/absolute/path/package.tgz`; a bare path is interpreted
+as an unpacked plugin directory.
 
 The plugin uses Authorization Code + PKCE and a loopback callback bound only to
 `127.0.0.1`. OpenCode stores the OAuth access/refresh pair. A single-flight

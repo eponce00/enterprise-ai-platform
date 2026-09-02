@@ -80,6 +80,8 @@ Required controls:
 - cap request-body size and connection/header timeouts without imposing a short
   timeout on legitimate model streams;
 - keep health and Prometheus endpoints private;
+- publish only the OpenAI-compatible `/v1/` API prefix and keep LiteLLM
+  management, spend, team, and key routes on the private loopback listener;
 - ensure access logs exclude `Authorization`, cookies, request/response bodies,
   prompts, completions, and provider credentials.
 

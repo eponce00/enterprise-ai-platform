@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 def _clients_by_id() -> dict[str, dict[str, Any]]:
     realm_path = Path(__file__).parents[1] / "gateway" / "dev" / "keycloak" / "realm.json"
@@ -27,3 +29,12 @@ def test_development_user_can_receive_refresh_tokens() -> None:
     users = {user["username"]: user for user in realm["users"]}
 
     assert "offline_access" in users["developer"]["realmRoles"]
+
+
+def test_development_keycloak_has_a_readiness_healthcheck() -> None:
+    compose_path = Path(__file__).parents[1] / "gateway" / "compose.yaml"
+    compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    healthcheck = compose["services"]["keycloak"]["healthcheck"]
+
+    assert healthcheck["test"][:3] == ["CMD", "bash", "-ec"]
+    assert "/health/ready" in healthcheck["test"][3]

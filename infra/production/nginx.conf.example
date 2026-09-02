@@ -36,7 +36,10 @@ server {
     access_log /var/log/nginx/enterprise-ai-access.log;
     error_log /var/log/nginx/enterprise-ai-error.log warn;
 
-    location / {
+    # Publish only the OpenAI-compatible API surface. LiteLLM health, metrics,
+    # spend, team, key, and administrative routes remain reachable solely on
+    # the loopback listener for trusted operators and monitoring.
+    location ^~ /v1/ {
         proxy_pass http://enterprise_ai_gateway;
         proxy_http_version 1.1;
 
@@ -56,5 +59,9 @@ server {
         proxy_connect_timeout 10s;
         proxy_send_timeout 3600s;
         proxy_read_timeout 3600s;
+    }
+
+    location / {
+        return 404;
     }
 }
