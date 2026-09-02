@@ -72,9 +72,7 @@ def set_runtime(
     developer_allow: list[str] | None = None,
     developer_deny: list[str] | None = None,
 ) -> None:
-    developer_models: dict[str, list[str]] = {
-        "allow": ["general-fast"] if developer_allow is None else developer_allow
-    }
+    developer_models: dict[str, list[str]] = {"allow": ["general-fast"] if developer_allow is None else developer_allow}
     if developer_deny is not None:
         developer_models["deny"] = developer_deny
     auth_module._validator = StaticValidator(claims)  # type: ignore[assignment]
