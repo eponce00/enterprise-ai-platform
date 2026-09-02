@@ -261,6 +261,9 @@ low-budget service identity.
 
 ## Production readiness checklist
 
+This is an operator release gate, not a list of controls already satisfied by
+the repository.
+
 - DNS and TLS renewal/reload tested; only HTTPS is published.
 - Development IdP/profile and all seeded development credentials are absent.
 - Secrets originate in the approved manager and rotation is rehearsed.

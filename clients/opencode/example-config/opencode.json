@@ -7,6 +7,8 @@
       "issuer": "https://identity.example.com",
       "clientId": "opencode-cli",
       "scope": "openid profile email offline_access",
+      "redirectPort": 8765,
+      "allowInsecureLocalhost": false,
       "exclusiveProvider": true
     }
   ]]

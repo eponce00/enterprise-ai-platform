@@ -71,7 +71,8 @@ specific routing parameters are not sent to them.
 
 ## Deployment evolution
 
-The POC is one gateway, one PostgreSQL database, and external HTTPS ingress.
-Scale-out keeps DNS/API stable: put multiple stateless LiteLLM replicas behind a
-load balancer, use managed PostgreSQL, share any distributed rate-limit cache,
-and connect existing metrics/logging. Kubernetes is one option, not a contract.
+The POC baseline is one gateway and one PostgreSQL database behind
+operator-supplied external HTTPS ingress. Scale-out keeps DNS/API stable: put
+multiple stateless LiteLLM replicas behind a load balancer, use managed
+PostgreSQL, share any distributed rate-limit cache, and connect existing
+metrics/logging. Kubernetes is one option, not a contract.

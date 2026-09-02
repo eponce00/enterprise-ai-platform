@@ -36,6 +36,25 @@ provider, so the plugin reads an atomically cached catalog in its `config` hook.
 The cache refreshes after login/refresh and applies on the next OpenCode instance.
 V2 remained beta and was not chosen.
 
+An isolated two-host staging run also found that the 1.18.26 one-shot
+`opencode run` command can intermittently remain in its upstream `init` phase
+before it creates a session. The same pinned build's long-lived local server and
+session API completed an authenticated streaming request and one built-in
+read-tool round trip through the plugin. Treat
+one-shot startup as a client rollout gate: use a bounded smoke-test timeout,
+retain diagnostics on failure, and validate a newer pinned release before
+upgrading. Related upstream reports include
+[#40516](https://github.com/anomalyco/opencode/issues/40516) and
+[#42779](https://github.com/anomalyco/opencode/issues/42779).
+
+For an unpackaged local smoke test, point the plugin tuple directly at the built
+module with an absolute `file:///.../dist/index.js` URL. A `file:/...tgz` entry
+uses OpenCode's package-install path and can make startup depend on npm registry
+availability; see upstream reports
+[#41934](https://github.com/anomalyco/opencode/issues/41934) and
+[#31463](https://github.com/anomalyco/opencode/issues/31463). Published rollouts
+should use the exact private-registry package version instead.
+
 ## OpenRouter
 
 Use authenticated `/api/v1/models/user` for the account-effective catalog and

@@ -52,9 +52,11 @@ approved provider list.
 
 This POC does not attempt device binding, mTLS/TPM attestation, MDM, DLP, network
 blocking, or prevention of personal AI accounts. It also does not make a user's
-bearer token impossible for that user to inspect. The guarantee is that a token
-cannot be exchanged for provider credentials and all company-funded inference remains
-behind policy.
+bearer token impossible for that user to inspect. The enforced boundary is that
+the plugin never receives provider credentials and requests using
+organization-managed provider credentials pass through gateway policy. This
+does not prevent a device owner from using separate clients, credentials, or
+endpoints.
 
 Before production, threat-model ingress/header trust, rotate all example secrets,
 verify backup encryption, set log retention, test key compromise/revocation,

@@ -24,6 +24,8 @@ tuple. The plugin has no generic gateway or identity-provider defaults:
       "issuer": "https://identity.example.com",
       "clientId": "opencode-cli",
       "scope": "openid profile email offline_access",
+      "redirectPort": 8765,
+      "allowInsecureLocalhost": false,
       "exclusiveProvider": true
     }
   ]]
@@ -36,9 +38,18 @@ Then authenticate:
 opencode auth login --provider organization --method "Company SSO"
 ```
 
-For an unpublished local tarball, OpenCode 1.18.26 requires an npm file spec
-with the exact form `file:/absolute/path/package.tgz`; a bare path is interpreted
-as an unpacked plugin directory.
+The fixed `redirectPort` must match the native-client loopback URI registered at
+the identity provider.
+
+For a source-tree smoke test, run `npm ci` and
+`npm run build --workspace clients/opencode`, then set the tuple's first element
+to `file:///absolute/path/to/repo/clients/opencode/dist/index.js` (or a
+`file:///C:/...` URL on Windows). A `.tgz` is an npm package spec, not a
+JavaScript module entry point; leaving `file:/...tgz` in runtime configuration
+invokes OpenCode's package-install path. To test the packed artifact, first
+install it and its production dependencies into an isolated directory, then
+point the tuple at the installed `dist/index.js`. Production deployments should
+use an exact immutable version from the organization's private registry.
 
 The plugin uses Authorization Code + PKCE and a loopback callback bound only to
 `127.0.0.1`. OpenCode stores the OAuth access/refresh pair. A single-flight
