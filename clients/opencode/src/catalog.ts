@@ -32,8 +32,9 @@ const FALLBACK_MODELS: GatewayModel[] = [
 export async function loadCatalog(options: OrganizationPluginOptions): Promise<GatewayModel[]> {
   try {
     const document = JSON.parse(await readFile(options.cachePath, "utf8")) as Partial<CacheDocument>
-    if (document.schema_version === 1 && Array.isArray(document.models) && document.models.length) {
-      return document.models.filter(validModel)
+    if (document.schema_version === 1 && Array.isArray(document.models)) {
+      const models = document.models.filter(validModel)
+      if (models.length) return models
     }
   } catch {
     // First run and a corrupt cache both use the packaged, safe aliases.

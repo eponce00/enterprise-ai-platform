@@ -17,4 +17,5 @@ def test_development_clients_emit_oidc_subject_claims() -> None:
     clients = _clients_by_id()
 
     assert "basic" in clients["enterprise-ai-cli"]["defaultClientScopes"]
+    assert "offline_access" in clients["enterprise-ai-cli"]["optionalClientScopes"]
     assert "basic" in clients["example-service"]["defaultClientScopes"]

@@ -1,5 +1,5 @@
 import { get } from "node:http"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -35,6 +35,23 @@ describe("provider configuration", () => {
     expect(Object.keys(config.provider?.organization?.models ?? {})).toContain("coding-frontier")
     expect(config.provider?.organization?.models?.["coding-frontier"]?.tool_call).toBe(true)
     expect(config.model).toBe("organization/coding-frontier")
+    await rm(directory, { recursive: true })
+  })
+
+  it("uses packaged aliases when the cache contains no valid models", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "enterprise-ai-plugin-"))
+    const cachePath = join(directory, "models.json")
+    await writeFile(cachePath, JSON.stringify({
+      schema_version: 1,
+      fetched_at: new Date().toISOString(),
+      models: [{ id: "vendor/*", name: "Unsafe wildcard" }],
+    }))
+    const options = readOptions({ ...baseOptions(), cachePath })
+    const models = await loadCatalog(options)
+    const config: Config = {}
+    configureProvider(config, options, models)
+    expect(Object.keys(config.provider?.organization?.models ?? {})).toContain("coding-frontier")
+    expect(config.provider?.organization?.models?.["coding-frontier"]?.tool_call).toBe(true)
     await rm(directory, { recursive: true })
   })
 

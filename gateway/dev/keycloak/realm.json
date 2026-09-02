@@ -24,6 +24,7 @@
       "redirectUris": ["http://127.0.0.1:*", "http://localhost:*"],
       "webOrigins": ["+"],
       "defaultClientScopes": ["basic", "profile", "email", "roles", "web-origins"],
+      "optionalClientScopes": ["offline_access"],
       "protocolMappers": [
         {
           "name": "gateway-audience",
