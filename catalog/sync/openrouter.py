@@ -24,6 +24,7 @@ class CatalogSyncError(RuntimeError):
 
 
 _GLOB_META = frozenset("*?[]")
+_PUBLIC_CATALOG_MODE = 0o644
 
 
 @dataclass(frozen=True)
@@ -297,6 +298,7 @@ def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
+        os.chmod(temporary, _PUBLIC_CATALOG_MODE)
         os.replace(temporary, path)
     except BaseException:
         try:

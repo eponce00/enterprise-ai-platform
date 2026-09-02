@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from pathlib import Path
 
 import httpx
@@ -115,6 +116,21 @@ def test_privacy_filter_is_requested_and_live_result_is_atomic(tmp_path: Path) -
     assert client.required_zdr is True
     assert result.source == "/api/v1/models/user"
     assert json.loads(output.read_text())["models"][0]["id"] == "vendor/model"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes are required")
+@pytest.mark.parametrize("replace_existing", [False, True])
+def test_published_catalog_is_world_readable(tmp_path: Path, replace_existing: bool) -> None:
+    output = tmp_path / "catalog.json"
+    if replace_existing:
+        output.write_text('{"previous": true}\n', encoding="utf-8")
+        output.chmod(0o600)
+
+    sync_catalog(CatalogPolicy(), output, client=StaticClient([model("vendor/model")]), now=1000)
+
+    assert stat.S_IMODE(output.stat().st_mode) == 0o644
+    assert json.loads(output.read_text(encoding="utf-8"))["models"][0]["id"] == "vendor/model"
+    assert not list(tmp_path.glob(".catalog.json.*"))
 
 
 def test_catalog_outage_uses_only_fresh_cache(tmp_path: Path) -> None:
