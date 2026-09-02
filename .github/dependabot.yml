@@ -66,6 +66,10 @@ updates:
       time: "07:00"
       timezone: Etc/UTC
     open-pull-requests-limit: 3
+    ignore:
+      # These tags are built by Compose and are not published registry images.
+      - dependency-name: enterprise-ai-gateway
+      - dependency-name: enterprise-ai-mock-provider
 
   - package-ecosystem: docker
     directory: /tests/e2e/mock_provider
