@@ -99,6 +99,7 @@
       "firstName": "Development",
       "lastName": "User",
       "groups": ["/ai-developers"],
+      "realmRoles": ["offline_access"],
       "credentials": [
         {"type": "password", "value": "development-only-password", "temporary": false}
       ]
