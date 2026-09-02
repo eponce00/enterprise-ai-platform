@@ -17,4 +17,6 @@ Humans authenticate with Authorization Code and PKCE through the OpenCode plugin
 - The demonstrated path requires no LiteLLM Enterprise authentication feature or per-request token introspection.
 - The project owns JWKS rotation, JWT validation, claim mapping, and their security tests.
 - Production IdP registration, claims, MFA, lifecycle, and availability remain organizational responsibilities.
-- Custom auth must preserve a tightly scoped administrative path for bootstrap and management.
+- Custom auth preserves an explicit administrative route allowlist for bootstrap
+  and the shipped accounting audit; the master credential is denied everywhere
+  else and replaced with a non-secret downstream identifier.

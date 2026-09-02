@@ -128,6 +128,24 @@ jobs:
           --profile mock
           config --quiet
 
+      - name: Validate production uses only the promoted image
+        env:
+          GATEWAY_IMAGE: ghcr.io/example/enterprise-ai-gateway@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          DATABASE_URL: postgresql://litellm:encoded%40password@postgres:5432/litellm
+        shell: bash
+        run: |
+          config="$({ docker compose --env-file .env.example \
+            -f gateway/compose.yaml -f infra/production/compose.yaml \
+            --profile bootstrap --profile catalog-sync config --format json; })"
+          python -c '
+          import json, os, sys
+          services = json.load(sys.stdin)["services"]
+          expected = os.environ["GATEWAY_IMAGE"]
+          assert "build" not in services["gateway"]
+          assert all(services[name]["image"] == expected for name in ("gateway", "bootstrap", "catalog-sync"))
+          assert services["gateway"]["environment"]["DATABASE_URL"] == os.environ["DATABASE_URL"]
+          ' <<<"$config"
+
   integration:
     name: Mock gateway integration tests
     runs-on: ubuntu-latest
@@ -186,7 +204,7 @@ jobs:
       - name: Point general-fast through the mocked OpenRouter adapter
         env:
           PROVIDER_SWITCH_MODEL: openrouter/openai/gpt-4o-mini
-          PROVIDER_SWITCH_POLICY_MODELS: openrouter/*,general-fast
+          PROVIDER_SWITCH_FALLBACK_MODEL: openrouter/openai/gpt-4o
         run: >-
           docker compose --env-file .env.example
           -f gateway/compose.yaml
@@ -202,10 +220,17 @@ jobs:
           printf '%s\n' "$output"
           test "$output" = "model=general-fast content=mock completion"
 
+      - name: Verify OpenRouter privacy routing follows the deployment
+        env:
+          E2E_EXPECT_OPENROUTER_POLICY: "1"
+        run: >-
+          python -m pytest
+          tests/e2e/test_gateway.py::test_deployment_derived_privacy_routing
+
       - name: Point general-fast at the direct OpenAI-compatible adapter
         env:
           PROVIDER_SWITCH_MODEL: openai/gpt-4o
-          PROVIDER_SWITCH_POLICY_MODELS: openrouter/*
+          PROVIDER_SWITCH_FALLBACK_MODEL: openai/gpt-4o
         run: >-
           docker compose --env-file .env.example
           -f gateway/compose.yaml
@@ -220,6 +245,13 @@ jobs:
           output="$(python services/examples/python/main.py)"
           printf '%s\n' "$output"
           test "$output" = "model=general-fast content=mock completion"
+
+      - name: Verify direct routing omits OpenRouter-only fields
+        env:
+          E2E_EXPECT_OPENROUTER_POLICY: "0"
+        run: >-
+          python -m pytest
+          tests/e2e/test_gateway.py::test_deployment_derived_privacy_routing
 
       - name: Show service logs after failure
         if: failure()

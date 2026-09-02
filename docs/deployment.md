@@ -53,17 +53,29 @@ front of port 4000 and publish only HTTPS. Do not publish PostgreSQL. Configure:
 networking. In ordinary production, omit both and use discovery from the issuer.
 `OIDC_ALLOW_HTTP` must remain false.
 
-The checked-in images are pinned by multi-architecture digest. Verify LiteLLM's
-cosign signature against its official pinned public key before promotion. The
-upstream image is mixed-license even though this project exercises only the MIT
-extension path; see `THIRD_PARTY_NOTICES.md` and obtain legal review.
+The checked-in upstream images are pinned by multi-architecture digest. CI must
+build the custom gateway once, publish it to the approved registry, and record
+the resulting digest in `GATEWAY_IMAGE`; a tag alone is not a production release
+identifier. Verify LiteLLM's cosign signature against its official pinned public
+key before building. The upstream image is mixed-license even though this
+project exercises only the MIT extension path; see `THIRD_PARTY_NOTICES.md` and
+obtain legal review.
 
-Before starting or rolling production gateways, publish a fresh approved
-catalog on the host:
+In the production environment file, set `POSTGRES_PASSWORD` to the raw database
+password used by the PostgreSQL container and set `DATABASE_URL` separately with
+RFC 3986 percent-encoding for reserved username/password characters. Do not
+construct a URI by interpolating an arbitrary raw password.
+
+Before starting or rolling production gateways, make `catalog/generated/`
+writable by the non-root UID used by the promoted image, then publish a fresh
+approved catalog with that same image and start without an on-host build:
 
 ```sh
-python -m catalog.sync --policy catalog/catalog-policy.yaml
-docker compose --env-file .env -f gateway/compose.yaml up -d --build --wait
+docker compose --env-file /run/secrets/enterprise-ai/runtime.env \
+  -f gateway/compose.yaml -f infra/production/compose.yaml \
+  --profile catalog-sync run --rm catalog-sync
+docker compose --env-file /run/secrets/enterprise-ai/runtime.env \
+  -f gateway/compose.yaml -f infra/production/compose.yaml up -d --wait
 ```
 
 Compose mounts `catalog/generated/` read-only. Startup validates the artifact
@@ -79,11 +91,16 @@ Run the one-shot bootstrap after policy changes. It uses the documented LiteLLM
 management API, not database internals:
 
 ```sh
-docker compose --env-file .env -f gateway/compose.yaml \
-  --profile bootstrap run --rm bootstrap
+docker compose --env-file /run/secrets/enterprise-ai/runtime.env \
+  -f gateway/compose.yaml \
+  -f infra/production/compose.yaml --profile bootstrap run --rm bootstrap
 ```
 
-It creates or updates team rows with model groups, monthly budgets, and RPM/TPM.
+It creates or updates team rows with model groups, monthly budgets, and RPM/TPM,
+and clears team-level router overrides/model aliases. The master credential is a
+management-only secret accepted on the bootstrap and shipped accounting-audit
+route allowlist. The gateway rejects it everywhere else and substitutes a
+non-secret identifier in downstream audit records.
 Custom auth deliberately does not self-call LiteLLM to JIT-provision users: that
 creates an auth recursion/availability coupling. The shipped POC enforces team
 budgets. If per-user ceilings inside a team are required, reconcile LiteLLM team
@@ -113,8 +130,13 @@ from the synchronized catalog at validation time.
 1. Call `general-fast` with its OpenRouter model/base/key variables.
 2. Change only `GENERAL_FAST_MODEL`, `GENERAL_FAST_API_BASE`, and
    `GENERAL_FAST_API_KEY` to a direct OpenAI-compatible backend.
-3. Remove `general-fast` from `OPENROUTER_POLICY_MODELS` and recreate the gateway.
+3. Recreate the gateway; startup/auth classification derives the direct backend
+   from the changed model adapter without a second alias list.
 4. Run the same example client without changing its source.
+
+Repoint every member of a configured fallback chain in the same rollout. The
+gateway rejects a chain that mixes OpenRouter and direct adapters because a
+fallback must not change the applicable provider-privacy contract.
 
 The CI provider-switch overlay performs this sequence without paid inference:
 it recreates the gateway with `general-fast` on LiteLLM's OpenRouter adapter,

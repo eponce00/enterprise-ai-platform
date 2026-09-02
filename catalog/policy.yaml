@@ -61,7 +61,9 @@ teams:
     rpm_limit: 600
     tpm_limit: 5000000
     models:
-      allow: [cheap-batch, general-fast]
+      # general-quality is the configured resilience fallback for general-fast
+      # and must be explicitly authorized just like a directly requested model.
+      allow: [cheap-batch, general-fast, general-quality]
 
 privacy_profiles:
   default:

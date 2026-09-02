@@ -40,10 +40,13 @@ The invariants are:
    team and privacy profile; no match is a denial.
 4. The hook rejects a disallowed logical/raw model and returns LiteLLM
    `UserAPIKeyAuth` identity, model, team, and rate fields.
-5. LiteLLM common checks load the reconciled team row from PostgreSQL and
-   enforce persistent team budget, rate, and model rules. The gateway opts into
-   hard, fail-closed team-budget verification and rejects requests when team
-   policy cannot be verified.
+5. LiteLLM common checks load the reconciled team row from a five-second bounded
+   last-known-good management cache or PostgreSQL and enforce persistent team
+   budget and model rules. An unreadable team is denied after cache expiry. The
+   custom-auth result carries the same source-controlled RPM/TPM values for
+   LiteLLM's limiter because pinned 1.99.0 does not hydrate those fields from the
+   team row on this path. The separate fail-closed budget setting applies to
+   spend-counter verification and reservation.
 6. The pre-call policy hook overwrites OpenRouter routing fields with at least
    the organization's ZDR/data-collection/provider restrictions.
 7. LiteLLM resolves the alias or approved explicit raw route and calls the selected provider with a
@@ -65,9 +68,15 @@ stable aliases, preventing guessed model IDs from bypassing catalog policy.
 Catalog discovery, route exposure, and team authorization remain separate layers.
 
 Changing an alias means changing its model, API base, and secret variables on
-the gateway. The client source and authentication do not change. Direct/local
-providers must also be removed from `OPENROUTER_POLICY_MODELS`, so OpenRouter-
-specific routing parameters are not sent to them.
+the gateway. The client source and authentication do not change. The auth path
+derives each route's backend from the resolved model adapter, applies
+OpenRouter-specific privacy fields only to OpenRouter deployments, and rejects
+an OpenRouter API base paired with a non-OpenRouter adapter. Every deployment of
+one public model and every configured fallback chain must remain within the same
+backend class; mixed OpenRouter/direct routes fail gateway startup and remain a
+fail-closed authentication error if a runtime artifact changes unexpectedly.
+Authentication also computes the transitive fallback graph and denies a request
+unless the caller's policy authorizes every reachable fallback target.
 
 ## Deployment evolution
 

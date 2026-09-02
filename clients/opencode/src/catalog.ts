@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 
 import type { Config } from "@opencode-ai/plugin"
+import { withRequestTimeout } from "./network.js"
 import type { OrganizationPluginOptions } from "./options.js"
 
 interface GatewayModel {
@@ -42,10 +43,15 @@ export async function loadCatalog(options: OrganizationPluginOptions): Promise<G
   return FALLBACK_MODELS
 }
 
-export async function refreshCatalog(options: OrganizationPluginOptions, accessToken: string): Promise<void> {
+export async function refreshCatalog(
+  options: OrganizationPluginOptions,
+  accessToken: string,
+  callerSignal?: AbortSignal,
+): Promise<void> {
   const response = await fetch(`${options.gatewayUrl}/models`, {
     headers: { Authorization: `Bearer ${accessToken}`, "X-Enterprise-AI-Client": "opencode" },
     redirect: "error",
+    signal: withRequestTimeout(options.requestTimeoutMs, callerSignal),
   })
   if (!response.ok) throw new Error(`gateway catalog request failed with HTTP ${response.status}`)
   const body = await response.json() as { data?: GatewayModel[] }

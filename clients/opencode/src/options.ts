@@ -14,9 +14,12 @@ export interface OrganizationPluginOptions {
   exclusiveProvider: boolean
   allowInsecureLocalhost: boolean
   refreshSkewMs: number
+  requestTimeoutMs: number
 }
 
 type RawOptions = Record<string, unknown>
+
+const MAX_REQUEST_TIMEOUT_MS = 300_000
 
 export function readOptions(raw: RawOptions = {}): OrganizationPluginOptions {
   const gatewayUrl = stringOption(raw, "gatewayUrl", process.env.ENTERPRISE_AI_GATEWAY_URL ?? "")
@@ -46,6 +49,12 @@ export function readOptions(raw: RawOptions = {}): OrganizationPluginOptions {
     exclusiveProvider: booleanOption(raw, "exclusiveProvider", false),
     allowInsecureLocalhost,
     refreshSkewMs: numberOption(raw, "refreshSkewMs", 120_000),
+    requestTimeoutMs: boundedPositiveNumberOption(
+      raw,
+      "requestTimeoutMs",
+      15_000,
+      MAX_REQUEST_TIMEOUT_MS,
+    ),
   }
 }
 
@@ -73,6 +82,23 @@ function numberOption(raw: RawOptions, key: string, fallback: number): number {
   const value = raw[key]
   if (value === undefined) return fallback
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) throw new Error(`${key} must be a non-negative integer`)
+  return value
+}
+
+function positiveNumberOption(raw: RawOptions, key: string, fallback: number): number {
+  const value = numberOption(raw, key, fallback)
+  if (value === 0) throw new Error(`${key} must be a positive integer`)
+  return value
+}
+
+function boundedPositiveNumberOption(
+  raw: RawOptions,
+  key: string,
+  fallback: number,
+  maximum: number,
+): number {
+  const value = positiveNumberOption(raw, key, fallback)
+  if (value > maximum) throw new Error(`${key} must be at most ${maximum}`)
   return value
 }
 

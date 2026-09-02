@@ -31,6 +31,16 @@ def test_normal_completion_and_accounting(gateway_client: OpenAI) -> None:
     assert float(raw_response.headers["x-litellm-response-cost"]) > 0
 
 
+def test_deployment_derived_privacy_routing(gateway_client: OpenAI) -> None:
+    expects_openrouter = os.getenv("E2E_EXPECT_OPENROUTER_POLICY", "0") == "1"
+    sentinel = "assert-openrouter-privacy-routing" if expects_openrouter else "assert-direct-privacy-routing"
+    response = gateway_client.chat.completions.create(
+        model="general-fast",
+        messages=[{"role": "user", "content": sentinel}],
+    )
+    assert response.choices[0].message.content == "mock completion"
+
+
 def test_streaming(gateway_client: OpenAI) -> None:
     stream = gateway_client.chat.completions.create(
         model="general-fast",

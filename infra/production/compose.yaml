@@ -1,0 +1,30 @@
+services:
+  gateway:
+    # Production consumes a promoted immutable image; it never builds on-host.
+    build: !reset null
+    # Never import a repository-local development .env into production.
+    env_file: !reset []
+    image: ${GATEWAY_IMAGE:?set GATEWAY_IMAGE to a registry image pinned by sha256 digest}
+    environment:
+      # Keep URI encoding separate from the raw password consumed by Postgres.
+      DATABASE_URL: ${DATABASE_URL:?set a secret-managed PostgreSQL URL with percent-encoded credentials}
+
+  bootstrap:
+    image: ${GATEWAY_IMAGE:?set GATEWAY_IMAGE to a registry image pinned by sha256 digest}
+
+  catalog-sync:
+    image: ${GATEWAY_IMAGE:?set GATEWAY_IMAGE to a registry image pinned by sha256 digest}
+    profiles: [catalog-sync]
+    entrypoint: ["python", "-m", "catalog.sync"]
+    command:
+      - --policy
+      - /app/catalog-policy.yaml
+      - --output
+      - /app/catalog/generated/approved-models.json
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      - type: bind
+        source: ../catalog/generated
+        target: /app/catalog/generated
+    restart: "no"

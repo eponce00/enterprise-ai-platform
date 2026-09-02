@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 
+import { withRequestTimeout } from "./network.js"
 import type { OrganizationPluginOptions } from "./options.js"
 
 export interface OIDCMetadata {
@@ -22,8 +23,11 @@ interface PendingCallback {
   close: () => Promise<void>
 }
 
-export async function discover(options: OrganizationPluginOptions): Promise<OIDCMetadata> {
-  const response = await fetch(`${options.issuer}/.well-known/openid-configuration`, { redirect: "error" })
+export async function discover(options: OrganizationPluginOptions, callerSignal?: AbortSignal): Promise<OIDCMetadata> {
+  const response = await fetch(`${options.issuer}/.well-known/openid-configuration`, {
+    redirect: "error",
+    signal: withRequestTimeout(options.requestTimeoutMs, callerSignal),
+  })
   if (!response.ok) throw new Error(`OIDC discovery failed with HTTP ${response.status}`)
   const metadata = await response.json() as Partial<OIDCMetadata>
   if (metadata.issuer?.replace(/\/$/, "") !== options.issuer) throw new Error("OIDC discovery issuer mismatch")
@@ -33,12 +37,12 @@ export async function discover(options: OrganizationPluginOptions): Promise<OIDC
   return metadata as OIDCMetadata
 }
 
-export async function beginAuthorization(options: OrganizationPluginOptions): Promise<{
+export async function beginAuthorization(options: OrganizationPluginOptions, callerSignal?: AbortSignal): Promise<{
   url: string
   exchange: () => Promise<OAuthTokens>
   close: () => Promise<void>
 }> {
-  const metadata = await discover(options)
+  const metadata = await discover(options, callerSignal)
   const verifier = base64Url(randomBytes(32))
   const challenge = base64Url(createHash("sha256").update(verifier).digest())
   const state = randomUUID()
@@ -64,25 +68,30 @@ export async function beginAuthorization(options: OrganizationPluginOptions): Pr
         code,
         redirect_uri: callback.redirectUri,
         code_verifier: verifier,
-      })
+      }, callerSignal)
     },
   }
 }
 
-export async function refreshTokens(options: OrganizationPluginOptions, refreshToken: string): Promise<OAuthTokens> {
+export async function refreshTokens(
+  options: OrganizationPluginOptions,
+  refreshToken: string,
+  callerSignal?: AbortSignal,
+): Promise<OAuthTokens> {
   if (!refreshToken) throw new Error("the OIDC session has no refresh token; sign in again")
-  const metadata = await discover(options)
+  const metadata = await discover(options, callerSignal)
   return exchangeCode(metadata.token_endpoint, options, {
     grant_type: "refresh_token",
     client_id: options.clientId,
     refresh_token: refreshToken,
-  })
+  }, callerSignal)
 }
 
 async function exchangeCode(
   endpoint: string,
   options: OrganizationPluginOptions,
   fields: Record<string, string>,
+  callerSignal?: AbortSignal,
 ): Promise<OAuthTokens> {
   assertSecureEndpoint(endpoint, options)
   const response = await fetch(endpoint, {
@@ -90,6 +99,7 @@ async function exchangeCode(
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(fields),
     redirect: "error",
+    signal: withRequestTimeout(options.requestTimeoutMs, callerSignal),
   })
   if (!response.ok) throw new Error(`OIDC token exchange failed with HTTP ${response.status}`)
   const tokens = await response.json() as OAuthTokens

@@ -22,5 +22,10 @@ rate, user/team, and database-backed budget checks after custom auth.
 
 Alias model, base URL, and API key are independent environment variables. To
 move `general-fast` from OpenRouter to a direct OpenAI-compatible provider,
-change those server-side variables and remove `general-fast` from
-`OPENROUTER_POLICY_MODELS`; clients continue sending the same model name.
+change those server-side variables to the direct provider's adapter, base URL,
+and secret. Clients continue sending the same model name, and no separate
+privacy-route allowlist can drift from the deployment.
+
+All deployments of one public model and all members of a fallback chain must use
+the same backend class. Mixed OpenRouter/direct routing fails closed so failover
+cannot weaken or misapply provider-specific privacy fields.

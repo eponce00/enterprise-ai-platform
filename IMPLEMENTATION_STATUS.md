@@ -4,10 +4,11 @@ Last updated: 2026-09-02
 
 ## Current phase
 
-Phases 0–8 are represented in the POC. Static checks, unit tests, and the official
-OpenCode load smoke have passed locally. The repository defines a mock Compose
-suite for runtime verification; live-provider and corporate-IdP validation remain
-opt-in because they require deployment credentials.
+Phases 0–8 are represented in the POC. Static checks, unit tests, the official
+OpenCode load smoke, and the mock Compose suite pass. A disposable two-host
+staging deployment has exercised a separate gateway/Keycloak/PostgreSQL host and
+OpenCode client host. Live-provider and target corporate-IdP validation remain
+opt-in because they require protected deployment credentials.
 
 ## Completed
 
@@ -25,6 +26,12 @@ opt-in because they require deployment credentials.
   completions, streaming, tools, fallback, and unchanged service examples.
 - Added a CI provider-switch sequence that runs the same service client before
   and after changing `general-fast` from the OpenRouter adapter to a direct one.
+- Exercised browser Authorization Code + PKCE, rotated refresh tokens across a
+  client restart, exact role/group/service authorization, database-backed budget
+  denial, restart persistence, streaming, and a real OpenCode built-in read-tool
+  round trip in isolated two-host staging.
+- Exercised PostgreSQL, Keycloak, and gateway interruption/recovery, loopback-only
+  listeners, external port denial, and a reverse-proxy route allowlist.
 - Added deployment, security, identity, operations, client, and service docs plus ADRs.
 
 ## In progress
@@ -38,6 +45,10 @@ opt-in because they require deployment credentials.
 - Run the live OpenRouter-to-direct provider-switch procedure in staging.
 - Replace example alias targets and provider allowlists with approved choices.
 - Connect production Prometheus/Grafana and a managed secrets backend.
+- Add and burst-test coordination Redis before using multiple gateway workers or
+  replicas; the validated POC deployment deliberately uses one worker.
+- Run organization-specific load, backup/restore, disaster-recovery, and ingress
+  certificate tests in the target production platform.
 
 ## Open questions
 
@@ -58,6 +69,8 @@ opt-in because they require deployment credentials.
 - Approved raw access uses only fresh catalog-derived, explicitly priced routes;
   no unrestricted OpenRouter wildcard route is exposed. Stable aliases are explicit.
 - Policy fails closed; unknown groups and unavailable live catalogs do not expand access.
+- Clients cannot replace server-managed fallback routes, and every deployment or
+  fallback chain must stay within one OpenRouter/direct privacy class.
 
 ## Known blockers
 
@@ -66,3 +79,8 @@ opt-in because they require deployment credentials.
 - Example budget values are illustrative and require organizational approval.
 - Live-provider and corporate-IdP certification require protected deployment
   credentials and an approved test environment.
+- OpenCode 1.18.26 one-shot `opencode run` startup can intermittently remain in
+  upstream initialization; the long-lived server/session path passed, and the
+  one-shot behavior remains a client rollout gate.
+- Horizontal gateway scaling requires a tested shared coordination Redis; the
+  current single-worker topology does not claim aggregate multi-replica RPM/TPM.

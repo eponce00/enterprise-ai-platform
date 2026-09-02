@@ -15,14 +15,28 @@
 - PKCE, random state, loopback-only callback, short callback timeout, and exact
   gateway origin/path checking before bearer attachment.
 - Unknown identity/model mapping denial, server-side common checks, and explicit
-  fail-closed team-policy/team-budget verification.
+  denial when team state is unreadable after the five-second last-known-good
+  management-cache window. Spend-counter verification/reservation separately
+  uses fail-closed budget enforcement.
 - OpenRouter ZDR/data-collection/provider restrictions overwrite weaker caller
-  values; tool calls require supporting provider endpoints.
+  values; tool calls require supporting provider endpoints. Clients cannot
+  override server-managed fallback routing, and configured fallback chains must
+  stay within one backend privacy class. Every reachable fallback is checked
+  against the caller's model grant before upstream dispatch. Bootstrap also
+  clears database team-level router overrides and aliases; an empty DB-object
+  allowlist keeps deployments/global routing source-controlled even if stale DB
+  state attempts to re-enable model storage. Management-plane drift must alert.
 - Provider/admin secrets are absent from images, source, client config, and logs.
+- The master credential is accepted only on an explicit bootstrap/accounting
+  route allowlist, is replaced with a non-secret audit alias after comparison,
+  and cannot authorize any other management or data-plane route. OIDC
+  credentials are accepted only on the exact model-list and chat-completion
+  routes published by this release.
 - Message logging and prompt storage in spend logs are disabled; API key
-  information is redacted. The integration suite checks chat-completion spend
-  detail for prompt and response leakage. Review and regression-test retention
-  separately before enabling another API family such as embeddings or images.
+  information is redacted, and clients cannot disable callbacks with `no-log`.
+  The integration suite checks chat-completion spend detail for prompt and
+  response leakage. Review and regression-test retention separately before
+  enabling another API family such as embeddings or images.
 
 ## Data retention
 

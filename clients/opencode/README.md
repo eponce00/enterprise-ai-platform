@@ -25,6 +25,7 @@ tuple. The plugin has no generic gateway or identity-provider defaults:
       "clientId": "opencode-cli",
       "scope": "openid profile email offline_access",
       "redirectPort": 8765,
+      "requestTimeoutMs": 15000,
       "allowInsecureLocalhost": false,
       "exclusiveProvider": true
     }
@@ -39,7 +40,10 @@ opencode auth login --provider organization --method "Company SSO"
 ```
 
 The fixed `redirectPort` must match the native-client loopback URI registered at
-the identity provider.
+the identity provider. `requestTimeoutMs` defaults to 15000 (maximum 300000).
+One deadline covers a complete refresh, including discovery, token exchange, and
+rotated-token persistence; catalog requests are bounded separately. It does not
+limit inference streams, and caller cancellation remains effective.
 
 For a source-tree smoke test, run `npm ci` and
 `npm run build --workspace clients/opencode`, then set the tuple's first element

@@ -12,6 +12,22 @@ Alert on authentication failure spikes, 429/5xx rates, provider fallback/cooldow
 catalog age, abnormal spend, budget exhaustion, database saturation, and token/
 cost accounting gaps. Never add raw prompts or completions to metric labels.
 
+Team/key policy uses LiteLLM's bounded last-known-good management cache, set to
+five seconds in this release. Alert on PostgreSQL readiness immediately and on
+bursts of team authentication errors: cached policy may serve briefly during an
+outage, but an unreadable team is denied after cache expiry. The separate
+`fail_closed_budget_enforcement` setting governs spend-counter verification and
+reservation; it is not a PostgreSQL outage kill switch.
+
+Fallbacks are server-owned configuration. Bootstrap clears team-level router
+overrides and model aliases on every reconciliation; alert on management-plane
+drift and never grant users or service identities permission to modify team/key
+routing. The gateway rejects request-level provider/fallback controls,
+post-authentication model rewrites, silent model mirroring, cycles,
+cross-backend chains, and fallback targets outside the caller's model grant.
+`supported_db_objects: []` also prevents a stale database setting from loading
+DB deployments or global router settings into the source-controlled Router.
+
 The mock accounting test temporarily lowers and then restores the `automation`
 team budget to prove database-backed denial. It refuses this mutation on a
 non-loopback gateway unless `ALLOW_E2E_POLICY_MUTATION=1` is explicitly set.

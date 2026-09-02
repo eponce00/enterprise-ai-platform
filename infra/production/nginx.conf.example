@@ -1,6 +1,11 @@
 # Example only. Replace the hostname, certificate paths, resolver/network policy,
 # and log destinations with organization-approved values before deployment.
 
+# Deliberately omit the raw request line, query string, Referer, cookies, and
+# Authorization. `$uri` is the normalized path without arguments.
+log_format enterprise_ai_safe '$remote_addr [$time_local] "$request_method $uri $server_protocol" '
+                              '$status $body_bytes_sent $request_time "$request_id"';
+
 upstream enterprise_ai_gateway {
     zone enterprise_ai_gateway 64k;
     server 127.0.0.1:4000;
@@ -11,6 +16,8 @@ server {
     listen 80;
     listen [::]:80;
     server_name ai-gateway.example.com;
+    access_log /var/log/nginx/enterprise-ai-access.log enterprise_ai_safe;
+    error_log /var/log/nginx/enterprise-ai-error.log warn;
     return 308 https://$host$request_uri;
 }
 
@@ -33,13 +40,13 @@ server {
 
     # Keep the log format free of Authorization, cookies, bodies, prompts, and
     # completions. Protect log files as identity/spend metadata.
-    access_log /var/log/nginx/enterprise-ai-access.log;
+    access_log /var/log/nginx/enterprise-ai-access.log enterprise_ai_safe;
     error_log /var/log/nginx/enterprise-ai-error.log warn;
 
-    # Publish only the OpenAI-compatible API surface. LiteLLM health, metrics,
-    # spend, team, key, and administrative routes remain reachable solely on
-    # the loopback listener for trusted operators and monitoring.
-    location ^~ /v1/ {
+    # Publish only the API calls validated by this release. Do not proxy the
+    # rest of LiteLLM's /v1 surface: some routes create or manage shared
+    # provider-side resources and require separate policy/privacy review.
+    location ~ ^/v1/(models|chat/completions)$ {
         proxy_pass http://enterprise_ai_gateway;
         proxy_http_version 1.1;
 
@@ -51,7 +58,8 @@ server {
         proxy_set_header X-Request-ID $request_id;
         proxy_set_header Connection "";
 
-        # Required for token streaming/SSE. Tune the idle timeout to policy.
+        # Required for chat-completion token streaming/SSE. Tune the idle
+        # timeout to policy.
         proxy_buffering off;
         proxy_request_buffering off;
         proxy_cache off;

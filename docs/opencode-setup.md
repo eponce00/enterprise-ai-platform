@@ -26,6 +26,11 @@ issuer URLs must use HTTPS; set `allowInsecureLocalhost:false`. Configure the
 plugin's `audience` option only when the target IdP requires an audience or
 resource parameter in the authorization request.
 
+The optional `requestTimeoutMs` setting defaults to 15000 and bounds OIDC
+discovery, token exchange, token refresh, and gateway catalog requests. It does
+not impose a duration limit on inference streams. Internal timeouts are composed
+with any caller cancellation signal so an explicit cancellation is preserved.
+
 Run `/models` to choose an approved model. Logical aliases remain available if
 the catalog cannot refresh. When a session expires, the plugin refreshes early;
 if the refresh token is revoked or missing, rerun the login command. When

@@ -33,6 +33,8 @@ litellm_settings:
   drop_params: true
   turn_off_message_logging: true
   redact_user_api_key_info: true
+  # Clients cannot suppress callbacks/accounting telemetry with `no-log`.
+  global_disable_no_log_param: true
   set_verbose: false
   enable_post_custom_auth_checks: true
   callbacks:
@@ -51,7 +53,14 @@ general_settings:
   # silently turn a managed team into an unrestricted token-derived team.
   allow_requests_on_db_unavailable: false
   fail_closed_budget_enforcement: true
+  # Bound last-known-good team/key policy after PostgreSQL becomes unavailable.
+  # Keep this positive: zero is not a supported cache-disable sentinel.
+  user_api_key_cache_ttl: 5
   store_model_in_db: false
+  # A stale DB general_settings row can turn store_model_in_db back on in pinned
+  # LiteLLM. This authoritative empty allowlist still prevents DB deployments
+  # and DB router settings from entering the live source-controlled Router.
+  supported_db_objects: []
   store_prompts_in_spend_logs: false
   disable_spend_logs: false
 

@@ -6,8 +6,6 @@ data-collection denial, or the organization's provider restrictions.
 
 from __future__ import annotations
 
-import fnmatch
-import os
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -28,10 +26,28 @@ class EnterprisePolicyHook(CustomLogger):  # type: ignore[misc]
         data: dict[str, Any],
         call_type: Any,
     ) -> dict[str, Any]:
+        # LiteLLM can project key/team router settings into request data after
+        # custom authentication. Any non-empty override would bypass the
+        # startup-validated, source-controlled fallback graph.
+        if data.get("router_settings_override") not in (None, {}):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="database router overrides are not allowed",
+            )
+        if getattr(user_api_key_dict, "aliases", None) or getattr(user_api_key_dict, "team_model_aliases", None):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="database model aliases are not allowed",
+            )
+
         metadata = getattr(user_api_key_dict, "metadata", {}) or {}
+        if "authorized_model" in metadata and data.get("model") != metadata["authorized_model"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="model routing changed after authorization",
+            )
         policy = metadata.get("openrouter_policy", {})
-        model = str(data.get("model") or "")
-        if not isinstance(policy, dict) or not self._is_openrouter_route(model):
+        if not isinstance(policy, dict) or metadata.get("route_backend") != "openrouter":
             return data
 
         extra_body = data.get("extra_body")
@@ -68,16 +84,6 @@ class EnterprisePolicyHook(CustomLogger):  # type: ignore[misc]
             provider["require_parameters"] = True
         data["provider"] = provider
         return data
-
-    @staticmethod
-    def _is_openrouter_route(model: str) -> bool:
-        patterns = _strings(
-            os.getenv(
-                "OPENROUTER_POLICY_MODELS",
-                "openrouter/*,general-fast,general-quality,coding-fast,coding-frontier,cheap-batch",
-            )
-        )
-        return any(fnmatch.fnmatchcase(model, pattern) for pattern in patterns)
 
 
 def _strings(value: Any) -> list[str]:

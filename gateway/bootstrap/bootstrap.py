@@ -28,6 +28,12 @@ def main() -> int:
                 "budget_duration": "1mo",
                 "rpm_limit": team.get("rpm_limit"),
                 "tpm_limit": team.get("tpm_limit"),
+                # Team-level router overrides can bypass the validated global
+                # fallback graph. Source policy deliberately clears them.
+                "router_settings": {},
+                # LiteLLM applies team aliases after custom authentication;
+                # clear them so the reviewed public model name stays stable.
+                "model_aliases": {},
                 "metadata": {"managed_by": "enterprise-ai-platform"},
             }
             payload = {key: value for key, value in payload.items() if value is not None}

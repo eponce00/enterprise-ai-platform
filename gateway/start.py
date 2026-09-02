@@ -8,6 +8,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from catalog.sync import CatalogPolicy, CatalogSyncError, policy_fingerprint
+from gateway.auth.oidc_auth import RuntimeModelPolicyError, validate_runtime_model_policy
+from gateway.auth.policy import PolicyEngine, PolicyError
 from gateway.catalog_config import RuntimeConfigError, render_runtime_config
 
 DEFAULT_BASE_CONFIG = "/app/gateway/litellm/config.yaml"
@@ -78,7 +80,9 @@ def main(arguments: Sequence[str] | None = None) -> None:
             expected_policy_fingerprint=policy_fingerprint(catalog_policy),
             max_age_seconds=max_age_seconds,
         )
-    except (CatalogSyncError, RuntimeConfigError) as exc:
+        PolicyEngine.from_file(os.getenv("OIDC_POLICY_FILE", "/app/policy.yaml"))
+        validate_runtime_model_policy()
+    except (CatalogSyncError, PolicyError, RuntimeConfigError, RuntimeModelPolicyError) as exc:
         raise SystemExit(f"gateway startup configuration failed: {exc}") from exc
 
     level = "info" if result.catalog_state in {"fresh", "missing"} else "warning"

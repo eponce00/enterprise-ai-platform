@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from gateway.auth.claims import Identity, extract_identity
-from gateway.auth.policy import PolicyDenied, PolicyEngine
+from gateway.auth.policy import PolicyDenied, PolicyEngine, PolicyError
 
 
 @pytest.fixture
@@ -89,3 +91,39 @@ def test_provider_restrictions(engine: PolicyEngine) -> None:
         engine.authorize_model(decision, "general-fast", provider="other")
     with pytest.raises(PolicyDenied, match="denied"):
         engine.authorize_model(decision, "general-fast", provider="denied")
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [
+        {"zdr": "true"},
+        {"data_collection": "denied"},
+        {"require_parameters": 1},
+        {"data_collecton": "deny"},
+        {"zdr": False, "require_zdr": True},
+        {"provider_allowlist": ["same"], "provider_denylist": ["same"]},
+    ],
+)
+def test_malformed_privacy_profiles_fail_at_load(profile: dict[str, object]) -> None:
+    with pytest.raises(PolicyError, match="privacy profile"):
+        PolicyEngine(
+            {
+                "mappings": [{"oidc_group": "developers", "team": "developers"}],
+                "teams": {"developers": {"models": {"allow": ["general-fast"]}}},
+                "privacy_profiles": {"default": profile},
+            }
+        )
+
+
+@pytest.mark.parametrize("contents", ["privacy_profiles: [", "[]"])
+def test_policy_file_load_errors_are_normalized(contents: str, tmp_path: Path) -> None:
+    policy = tmp_path / "invalid-policy.yaml"
+    policy.write_text(contents, encoding="utf-8")
+
+    with pytest.raises(PolicyError):
+        PolicyEngine.from_file(policy)
+
+
+def test_missing_policy_file_is_a_policy_error(tmp_path: Path) -> None:
+    with pytest.raises(PolicyError, match="cannot load policy file"):
+        PolicyEngine.from_file(tmp_path / "missing.yaml")

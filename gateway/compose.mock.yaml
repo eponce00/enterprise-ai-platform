@@ -20,7 +20,6 @@ services:
       CODING_FRONTIER_API_KEY: mock-provider-key
       CHEAP_BATCH_API_KEY: mock-provider-key
       # Aliases in this overlay are direct OpenAI-compatible routes.
-      OPENROUTER_POLICY_MODELS: openrouter/*
     depends_on:
       mock-provider:
         condition: service_healthy

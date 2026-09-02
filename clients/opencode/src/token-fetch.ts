@@ -2,6 +2,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import type { Auth } from "@opencode-ai/sdk/v2"
 
 import { refreshCatalog } from "./catalog.js"
+import { withRequestTimeout } from "./network.js"
 import { refreshTokens } from "./oauth.js"
 import type { OrganizationPluginOptions } from "./options.js"
 
@@ -20,7 +21,11 @@ export function createAuthenticatedFetch(
 
   const renew = async (auth: Extract<Auth, { type: "oauth" }>): Promise<TokenState> => {
     if (!refreshInFlight) {
-      refreshInFlight = refreshTokens(options, auth.refresh)
+      // One deadline covers discovery, token exchange, and persistence. Caller
+      // cancellation races only that caller's wait and cannot abort a refresh
+      // shared by another concurrent request.
+      const refreshSignal = withRequestTimeout(options.requestTimeoutMs)
+      refreshInFlight = refreshTokens(options, auth.refresh, refreshSignal)
         .then(async (tokens) => {
           const state = {
             access: tokens.access_token,
@@ -30,6 +35,8 @@ export function createAuthenticatedFetch(
           await input.client.auth.set({
             path: { id: options.providerId },
             body: { type: "oauth", ...state },
+            throwOnError: true,
+            signal: refreshSignal,
           })
           void refreshCatalog(options, state.access).catch(() => undefined)
           return state
@@ -53,14 +60,41 @@ export function createAuthenticatedFetch(
       throw new Error(`refusing to send the organization OAuth token to ${url.origin}`)
     }
     const retryInput = requestInput instanceof Request ? requestInput.clone() : requestInput
-    const first = await current()
+    const callerSignal = init?.signal ?? (requestInput instanceof Request ? requestInput.signal : undefined)
+    const first = await waitForCaller(() => current(), callerSignal)
     let response = await fetchWithToken(requestInput, init, first.access)
     if (response.status === 401 && first.refresh) {
-      const next = await current(true)
+      const next = await waitForCaller(() => current(true), callerSignal)
       response = await fetchWithToken(retryInput, init, next.access)
     }
     return response
   }
+}
+
+function waitForCaller<T>(operation: () => Promise<T>, signal?: AbortSignal | null): Promise<T> {
+  if (signal?.aborted) {
+    return Promise.reject(signal.reason ?? new DOMException("The operation was aborted", "AbortError"))
+  }
+  const promise = operation()
+  if (!signal) return promise
+  return new Promise<T>((resolve, reject) => {
+    const aborted = () => {
+      cleanup()
+      reject(signal.reason ?? new DOMException("The operation was aborted", "AbortError"))
+    }
+    const cleanup = () => signal.removeEventListener("abort", aborted)
+    signal.addEventListener("abort", aborted, { once: true })
+    promise.then(
+      (value) => {
+        cleanup()
+        resolve(value)
+      },
+      (error: unknown) => {
+        cleanup()
+        reject(error)
+      },
+    )
+  })
 }
 
 async function fetchWithToken(

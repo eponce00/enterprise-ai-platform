@@ -8,6 +8,7 @@
       "clientId": "opencode-cli",
       "scope": "openid profile email offline_access",
       "redirectPort": 8765,
+      "requestTimeoutMs": 15000,
       "allowInsecureLocalhost": false,
       "exclusiveProvider": true
     }

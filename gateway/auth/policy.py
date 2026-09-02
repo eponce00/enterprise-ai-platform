@@ -48,19 +48,37 @@ class PolicyDecision:
 class PolicyEngine:
     def __init__(self, document: Mapping[str, Any]):
         self.document = document
-        self.identity_config = dict(document.get("identity") or {})
-        self.mappings = list(document.get("mappings") or [])
-        self.teams = dict(document.get("teams") or {})
-        self.privacy_profiles = dict(document.get("privacy_profiles") or {})
+        identity_config = document.get("identity") or {}
+        mappings = document.get("mappings") or []
+        teams = document.get("teams") or {}
+        privacy_profiles = document.get("privacy_profiles") or {}
+        if not isinstance(identity_config, Mapping):
+            raise PolicyError("identity policy must be a mapping")
+        if not isinstance(mappings, list):
+            raise PolicyError("identity mappings must be a list")
+        if not isinstance(teams, Mapping):
+            raise PolicyError("teams policy must be a mapping")
+        if not isinstance(privacy_profiles, Mapping):
+            raise PolicyError("privacy profiles must be a mapping")
+        self.identity_config = dict(identity_config)
+        self.mappings = list(mappings)
+        self.teams = dict(teams)
+        self.privacy_profiles = dict(privacy_profiles)
         if not self.mappings:
             raise PolicyError("at least one identity mapping is required")
         if not self.teams:
             raise PolicyError("at least one team policy is required")
+        for name, profile in self.privacy_profiles.items():
+            _validate_privacy_profile(name, profile)
 
     @classmethod
     def from_file(cls, path: str | Path) -> PolicyEngine:
-        with Path(path).open("r", encoding="utf-8") as handle:
-            document = yaml.safe_load(handle) or {}
+        policy_path = Path(path)
+        try:
+            with policy_path.open("r", encoding="utf-8") as handle:
+                document = yaml.safe_load(handle) or {}
+        except (OSError, UnicodeError, yaml.YAMLError) as exc:
+            raise PolicyError(f"cannot load policy file: {policy_path}") from exc
         if not isinstance(document, Mapping):
             raise PolicyError("policy root must be a mapping")
         return cls(document)
@@ -177,3 +195,37 @@ def _optional_int(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise PolicyError("rate limit must be a positive integer")
     return int(value)
+
+
+def _validate_privacy_profile(name: object, value: object) -> None:
+    if not isinstance(name, str) or not name.strip() or not isinstance(value, Mapping):
+        raise PolicyError("privacy profile names and values must be valid mappings")
+    supported = {
+        "zdr",
+        "require_zdr",
+        "data_collection",
+        "deny_data_collection",
+        "require_parameters",
+        "provider_allowlist",
+        "provider_denylist",
+    }
+    unknown = set(value).difference(supported)
+    if unknown:
+        raise PolicyError(f"privacy profile {name!r} has unsupported fields: {', '.join(sorted(map(str, unknown)))}")
+    for field_name in ("zdr", "require_zdr", "deny_data_collection", "require_parameters"):
+        if field_name in value and not isinstance(value[field_name], bool):
+            raise PolicyError(f"privacy profile {name!r} field {field_name} must be boolean")
+    data_collection = value.get("data_collection")
+    if data_collection is not None and (
+        not isinstance(data_collection, str) or data_collection not in {"allow", "deny"}
+    ):
+        raise PolicyError(f"privacy profile {name!r} data_collection must be 'allow' or 'deny'")
+    if "zdr" in value and "require_zdr" in value and value["zdr"] != value["require_zdr"]:
+        raise PolicyError(f"privacy profile {name!r} has conflicting ZDR fields")
+    allowed = _list(value.get("provider_allowlist"))
+    denied = _list(value.get("provider_denylist"))
+    if any(not item.strip() or item != item.strip() for item in (*allowed, *denied)):
+        raise PolicyError(f"privacy profile {name!r} provider names must be non-empty and trimmed")
+    overlap = set(allowed).intersection(denied)
+    if overlap:
+        raise PolicyError(f"privacy profile {name!r} allows and denies the same provider")

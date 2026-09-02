@@ -39,25 +39,29 @@ later HA deployment should place two or more identical gateway replicas behind a
 load balancer and use managed or independently operated HA PostgreSQL with point-
 in-time recovery.
 
-The baseline Compose file constructs `DATABASE_URL` for its `postgres` service.
-Moving to external PostgreSQL therefore requires an organization-owned Compose
-override or service definition that replaces that environment value and removes
-the local database dependency; setting `DATABASE_URL` beside the current file is
-not sufficient. Validate the fully merged deployment with `config --quiet`.
+The development Compose file constructs `DATABASE_URL` for its local `postgres`
+service. The production override replaces it with an explicit secret-managed URL
+so arbitrary strong passwords can be percent-encoded safely. Moving to external
+PostgreSQL also requires an organization-owned override that removes the local
+database service/dependency. Validate the fully merged deployment with
+`config --quiet`.
 
 ## Release inputs
 
 Promote immutable, reviewed inputs together:
 
-- the gateway image pinned by digest;
+- the custom gateway image pinned by digest in `GATEWAY_IMAGE`;
 - the exact LiteLLM version embedded in that image;
 - `gateway/litellm/config.yaml` and the reviewed policy artifact;
 - a catalog artifact no older than the configured maximum age;
 - this repository revision and a release/change ticket;
 - a database migration and rollback decision for that exact version.
 
-Build once and promote the same digest through test, staging, and production.
-Do not rebuild a tag during promotion and do not deploy `latest` or
+Build once in CI and promote the same digest through test, staging, and
+production. The production override requires Docker Compose 2.24.4 or newer,
+uses `!reset` to remove the development build definition, and uses that one
+image for the gateway, policy bootstrap, and catalog sync. Do not build on a
+production host, rebuild a tag during promotion, or deploy `latest` or
 `main-latest`.
 
 ## Reverse proxy and TLS
@@ -80,10 +84,13 @@ Required controls:
 - cap request-body size and connection/header timeouts without imposing a short
   timeout on legitimate model streams;
 - keep health and Prometheus endpoints private;
-- publish only the OpenAI-compatible `/v1/` API prefix and keep LiteLLM
+- publish only the exact `/v1/models` and `/v1/chat/completions` endpoints
+  validated by this release, deny every other `/v1/` route, and keep LiteLLM
   management, spend, team, and key routes on the private loopback listener;
 - ensure access logs exclude `Authorization`, cookies, request/response bodies,
-  prompts, completions, and provider credentials.
+  prompts, completions, provider credentials, raw request lines, query strings,
+  and referrers. The example names an explicit minimal format on both HTTP and
+  HTTPS listeners; do not fall back to Nginx's `combined` format.
 
 Test certificate renewal and a graceful proxy reload before launch. Alert well
 before certificate expiry. If a load balancer and host proxy are chained, define
@@ -104,11 +111,11 @@ Compose is therefore the pilot integration point:
 ```sh
 sudo docker compose \
   --env-file /run/secrets/enterprise-ai/runtime.env \
-  -f gateway/compose.yaml config --quiet
+  -f gateway/compose.yaml -f infra/production/compose.yaml config --quiet
 
 sudo docker compose \
   --env-file /run/secrets/enterprise-ai/runtime.env \
-  -f gateway/compose.yaml up -d --wait
+  -f gateway/compose.yaml -f infra/production/compose.yaml up -d --wait
 ```
 
 Do not run `docker compose config` without `--quiet` in CI or support transcripts,
@@ -119,11 +126,16 @@ access.
 At minimum, manage and rotate these values independently:
 
 - PostgreSQL credentials and, when externalized, the complete `DATABASE_URL`;
-- `LITELLM_MASTER_KEY`, reserved for bootstrap/administration and never issued to
-  users or services;
+- `LITELLM_MASTER_KEY`, reserved for the gateway's explicit bootstrap/accounting
+  route allowlist and never issued to users or services;
 - OpenRouter and direct-provider credentials, held only by the gateway;
 - any confidential OIDC client credential used outside the gateway;
 - proxy certificate private keys.
+
+Supply the raw `POSTGRES_PASSWORD` expected by a co-located database and a
+`DATABASE_URL` whose credential components are RFC 3986 percent-encoded. They
+represent the same credential but are intentionally not composed by Compose,
+where reserved characters such as `@`, `:`, `/`, and `%` are ambiguous.
 
 OIDC issuer, audience, algorithms, and policy paths are configuration rather than
 secrets, but promote them through the same reviewed release process. Production

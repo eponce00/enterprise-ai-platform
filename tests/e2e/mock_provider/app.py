@@ -50,6 +50,24 @@ class Handler(BaseHTTPRequestHandler):
         prompt = " ".join(
             str(message.get("content") or "") for message in body.get("messages", []) if isinstance(message, dict)
         )
+        if "assert-openrouter-privacy-routing" in prompt:
+            provider = body.get("provider")
+            if not isinstance(provider, dict) or not (
+                provider.get("zdr") is True
+                and provider.get("data_collection") == "deny"
+                and provider.get("require_parameters") is True
+            ):
+                self._json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"error": {"message": "OpenRouter privacy policy was not forwarded"}},
+                )
+                return
+        if "assert-direct-privacy-routing" in prompt and "provider" in body:
+            self._json(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                {"error": {"message": "OpenRouter-only privacy fields leaked to a direct backend"}},
+            )
+            return
         if "force-total-failure" in prompt or ("force-provider-failure" in prompt and model == "gpt-4o-mini"):
             self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": {"message": "injected provider failure"}})
             return
