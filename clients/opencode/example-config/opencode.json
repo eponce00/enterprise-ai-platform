@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [[
+    "@organization/opencode-ai@0.1.0",
+    {
+      "gatewayUrl": "https://gateway.example.com/v1",
+      "issuer": "https://identity.example.com",
+      "clientId": "opencode-cli",
+      "scope": "openid profile email offline_access",
+      "exclusiveProvider": true
+    }
+  ]]
+}

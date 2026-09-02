@@ -1,0 +1,41 @@
+{
+  "name": "@organization/opencode-ai",
+  "version": "0.1.0",
+  "description": "OIDC and organization gateway integration for official OpenCode",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    "./server": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.22.2",
+    "opencode": "=1.18.26"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "test": "vitest run",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.43",
+    "@opencode-ai/plugin": "1.18.26",
+    "@opencode-ai/sdk": "1.18.26"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "5.9.2",
+    "vitest": "3.2.7"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

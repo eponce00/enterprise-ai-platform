@@ -1,0 +1,11 @@
+catalog:
+  # The effective authenticated catalog already reflects account guardrails.
+  allow: ["*"]
+  deny: []
+  require_zdr: true
+  require_tools: false
+  min_context_tokens: 8192
+  required_input_modalities: [text]
+  max_prompt_usd_per_million: 100
+  max_completion_usd_per_million: 200
+  max_stale_seconds: 86400

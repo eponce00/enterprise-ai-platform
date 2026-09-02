@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "enterprise-ai-platform"
+version = "0.1.0"
+description = "OIDC authentication, policy, and catalog extensions for an OSS LiteLLM gateway"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<0.29",
+  "PyJWT[crypto]>=2.10,<3",
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.1,<2",
+  "pytest-cov>=6.2,<7",
+  "respx>=0.22,<0.23",
+  "ruff>=0.12,<0.13",
+  "types-PyYAML>=6.0,<7",
+]
+integration = [
+  "openai>=1.99,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["gateway", "catalog"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["gateway/auth/tests", "catalog/tests", "tests"]
+asyncio_mode = "auto"
+markers = [
+  "integration: requires the local Docker Compose stack",
+  "real_provider: incurs provider cost and requires OPENROUTER_API_KEY",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC"]
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+packages = ["gateway", "catalog"]
+exclude = ["gateway/auth/tests/", "catalog/tests/"]
+
+[[tool.mypy.overrides]]
+module = ["litellm.*"]
+ignore_missing_imports = true

@@ -1,0 +1,81 @@
+version: 1
+
+identity:
+  organization: organization
+  group_claim: groups
+  role_claim: realm_access.roles
+  service_claim: identity_type
+  service_values: [service, workload]
+
+# First matching mapping wins. Put the most privileged/specific mappings first.
+mappings:
+  - oidc_role: ai-admin
+    kind: human
+    team: admins
+    privacy_profile: restricted
+  - client_id: example-service
+    kind: service
+    team: automation
+    privacy_profile: default
+  - oidc_group: ai-developers
+    kind: human
+    team: developers
+    privacy_profile: default
+  - oidc_group: ai-general
+    kind: human
+    team: general
+    privacy_profile: default
+
+teams:
+  admins:
+    monthly_budget_usd: 500
+    per_user_monthly_budget_usd: 250
+    rpm_limit: 240
+    tpm_limit: 2000000
+    models:
+      allow: ["*"]
+
+  developers:
+    monthly_budget_usd: 200
+    per_user_monthly_budget_usd: 100
+    rpm_limit: 120
+    tpm_limit: 1000000
+    models:
+      allow:
+        - coding-*
+        - general-*
+        - cheap-batch
+        - openrouter/*
+
+  general:
+    monthly_budget_usd: 40
+    per_user_monthly_budget_usd: 20
+    rpm_limit: 30
+    tpm_limit: 200000
+    models:
+      allow: [general-fast, general-quality]
+
+  automation:
+    monthly_budget_usd: 1000
+    per_user_monthly_budget_usd: 1000
+    rpm_limit: 600
+    tpm_limit: 5000000
+    models:
+      allow: [cheap-batch, general-fast]
+
+privacy_profiles:
+  default:
+    zdr: true
+    data_collection: deny
+    require_parameters: true
+    provider_allowlist: []
+    provider_denylist: []
+
+  restricted:
+    zdr: true
+    data_collection: deny
+    require_parameters: true
+    # Populate only after legal/security approval. Empty fails neither open nor
+    # closed on jurisdiction; it means no jurisdiction restriction is configured.
+    provider_allowlist: []
+    provider_denylist: []

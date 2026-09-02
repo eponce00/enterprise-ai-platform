@@ -1,0 +1,15 @@
+{
+  "name": "enterprise-ai-typescript-example",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22.22.2"},
+  "scripts": {
+    "start": "node --experimental-strip-types main.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {"openai": "5.19.1"},
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "5.9.2"
+  }
+}

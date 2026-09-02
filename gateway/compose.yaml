@@ -1,0 +1,120 @@
+name: enterprise-ai-platform
+
+services:
+  postgres:
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-litellm}
+      POSTGRES_USER: ${POSTGRES_USER:-litellm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - litellm-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [backend]
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: gateway/Dockerfile
+    image: enterprise-ai-gateway:0.1.0
+    command: ["--config", "/app/gateway/litellm/config.yaml", "--port", "4000", "--num_workers", "1"]
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-litellm}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-litellm}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:?set OIDC_ISSUER_URL in .env}
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:?set OIDC_AUDIENCE in .env}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_ALLOWED_CLIENT_IDS: ${OIDC_ALLOWED_CLIENT_IDS:-${OIDC_CLIENT_ID:-}}
+      OIDC_GROUP_CLAIM: ${OIDC_GROUP_CLAIM:-}
+      OIDC_ROLE_CLAIM: ${OIDC_ROLE_CLAIM:-}
+      OIDC_SERVICE_CLAIM: ${OIDC_SERVICE_CLAIM:-}
+      OIDC_REQUIRED_SCOPES: ${OIDC_REQUIRED_SCOPES:-}
+      OIDC_ALLOWED_ALGORITHMS: ${OIDC_ALLOWED_ALGORITHMS:-RS256}
+      OIDC_JWKS_TTL_SECONDS: ${OIDC_JWKS_TTL_SECONDS:-3600}
+      OIDC_JWKS_UNKNOWN_KID_REFRESH_SECONDS: ${OIDC_JWKS_UNKNOWN_KID_REFRESH_SECONDS:-30}
+      OIDC_CLOCK_SKEW_SECONDS: ${OIDC_CLOCK_SKEW_SECONDS:-30}
+      OIDC_ALLOW_HTTP: ${OIDC_ALLOW_HTTP:-false}
+      OIDC_POLICY_FILE: /app/policy.yaml
+      APPROVED_CATALOG_PATH: /app/catalog/generated/approved-models.json
+      APPROVED_CATALOG_MAX_AGE_SECONDS: ${APPROVED_CATALOG_MAX_AGE_SECONDS:-86400}
+      CATALOG_POLICY_FILE: /app/catalog-policy.yaml
+      OPENROUTER_POLICY_MODELS: ${OPENROUTER_POLICY_MODELS:-openrouter/*,general-fast,general-quality,coding-fast,coding-frontier,cheap-batch}
+      GENERAL_FAST_MODEL: ${GENERAL_FAST_MODEL:-openrouter/google/gemini-3.7-flash}
+      GENERAL_QUALITY_MODEL: ${GENERAL_QUALITY_MODEL:-openrouter/anthropic/claude-sonnet-5}
+      CODING_FAST_MODEL: ${CODING_FAST_MODEL:-openrouter/qwen/qwen3-coder-next}
+      CODING_FRONTIER_MODEL: ${CODING_FRONTIER_MODEL:-openrouter/openai/gpt-5.6-luna}
+      CHEAP_BATCH_MODEL: ${CHEAP_BATCH_MODEL:-openrouter/deepseek/deepseek-v4-flash-0731}
+      GENERAL_FAST_API_BASE: ${GENERAL_FAST_API_BASE:-https://openrouter.ai/api/v1}
+      GENERAL_QUALITY_API_BASE: ${GENERAL_QUALITY_API_BASE:-https://openrouter.ai/api/v1}
+      CODING_FAST_API_BASE: ${CODING_FAST_API_BASE:-https://openrouter.ai/api/v1}
+      CODING_FRONTIER_API_BASE: ${CODING_FRONTIER_API_BASE:-https://openrouter.ai/api/v1}
+      CHEAP_BATCH_API_BASE: ${CHEAP_BATCH_API_BASE:-https://openrouter.ai/api/v1}
+      GENERAL_FAST_API_KEY: ${GENERAL_FAST_API_KEY:-${OPENROUTER_API_KEY:-}}
+      GENERAL_QUALITY_API_KEY: ${GENERAL_QUALITY_API_KEY:-${OPENROUTER_API_KEY:-}}
+      CODING_FAST_API_KEY: ${CODING_FAST_API_KEY:-${OPENROUTER_API_KEY:-}}
+      CODING_FRONTIER_API_KEY: ${CODING_FRONTIER_API_KEY:-${OPENROUTER_API_KEY:-}}
+      CHEAP_BATCH_API_KEY: ${CHEAP_BATCH_API_KEY:-${OPENROUTER_API_KEY:-}}
+    volumes:
+      - type: bind
+        source: ../catalog/generated
+        target: /app/catalog/generated
+        read_only: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-4000}:4000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    networks: [backend]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.5@sha256:653852bfdea2be6e958b9e90a976eff1c6de34edd55f2f679bdc48ef16bc528e
+    profiles: [dev-idp]
+    command: ["start-dev", "--import-realm", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: development-only-admin
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
+    volumes:
+      - ./dev/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
+    ports:
+      - "127.0.0.1:${KEYCLOAK_HOST_PORT:-8080}:8080"
+    networks: [backend]
+
+  bootstrap:
+    image: enterprise-ai-gateway:0.1.0
+    profiles: [bootstrap]
+    entrypoint: ["python", "/app/gateway/bootstrap/bootstrap.py"]
+    environment:
+      LITELLM_INTERNAL_URL: http://gateway:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}
+      OIDC_POLICY_FILE: /app/policy.yaml
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+
+volumes:
+  litellm-postgres:
+
+networks:
+  backend:
+    internal: false

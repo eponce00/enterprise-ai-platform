@@ -1,0 +1,60 @@
+# Example only. Replace the hostname, certificate paths, resolver/network policy,
+# and log destinations with organization-approved values before deployment.
+
+upstream enterprise_ai_gateway {
+    zone enterprise_ai_gateway 64k;
+    server 127.0.0.1:4000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ai-gateway.example.com;
+    return 308 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ai-gateway.example.com;
+
+    ssl_certificate /run/secrets/enterprise-ai-tls/tls.crt;
+    ssl_certificate_key /run/secrets/enterprise-ai-tls/tls.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_tickets off;
+
+    server_tokens off;
+    client_max_body_size 20m;
+    client_header_timeout 15s;
+    client_body_timeout 60s;
+    keepalive_timeout 75s;
+
+    # Keep the log format free of Authorization, cookies, bodies, prompts, and
+    # completions. Protect log files as identity/spend metadata.
+    access_log /var/log/nginx/enterprise-ai-access.log;
+    error_log /var/log/nginx/enterprise-ai-error.log warn;
+
+    location / {
+        proxy_pass http://enterprise_ai_gateway;
+        proxy_http_version 1.1;
+
+        # Overwrite, rather than trust, client-supplied forwarding metadata.
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_set_header Connection "";
+
+        # Required for token streaming/SSE. Tune the idle timeout to policy.
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        gzip off;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 3600s;
+        proxy_read_timeout 3600s;
+    }
+}

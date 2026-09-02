@@ -1,0 +1,105 @@
+{
+  "realm": "enterprise-ai",
+  "enabled": true,
+  "displayName": "Enterprise AI Development",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "roles": {
+    "realm": [
+      {"name": "ai-admin", "description": "Development AI platform administrator"}
+    ]
+  },
+  "groups": [
+    {"name": "ai-developers"},
+    {"name": "ai-general"}
+  ],
+  "clients": [
+    {
+      "clientId": "enterprise-ai-cli",
+      "name": "Enterprise AI CLI (development)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["http://127.0.0.1:*", "http://localhost:*"],
+      "webOrigins": ["+"],
+      "defaultClientScopes": ["profile", "email", "roles", "web-origins"],
+      "protocolMappers": [
+        {
+          "name": "gateway-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "enterprise-ai-gateway",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "example-service",
+      "name": "Example service (development)",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "development-only-service-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "gateway-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "enterprise-ai-gateway",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "service-identity-type",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "identity_type",
+            "claim.value": "service",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "developer",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "developer@example.com",
+      "firstName": "Development",
+      "lastName": "User",
+      "groups": ["/ai-developers"],
+      "credentials": [
+        {"type": "password", "value": "development-only-password", "temporary": false}
+      ]
+    }
+  ]
+}

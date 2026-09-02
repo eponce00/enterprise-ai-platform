@@ -1,0 +1,17 @@
+version: 1
+aliases:
+  general-fast:
+    target_env: GENERAL_FAST_MODEL
+    purpose: Low-latency general work
+  general-quality:
+    target_env: GENERAL_QUALITY_MODEL
+    purpose: Higher-quality general work
+  coding-fast:
+    target_env: CODING_FAST_MODEL
+    purpose: Fast interactive coding
+  coding-frontier:
+    target_env: CODING_FRONTIER_MODEL
+    purpose: Difficult coding and reasoning
+  cheap-batch:
+    target_env: CHEAP_BATCH_MODEL
+    purpose: Cost-controlled automation

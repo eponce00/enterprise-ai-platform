@@ -1,0 +1,41 @@
+services:
+  gateway:
+    environment:
+      OPENROUTER_API_KEY: mock-provider-key
+      # Known LiteLLM model IDs make local token costs deterministic while the
+      # custom api_base keeps every CI request on the free mock backend.
+      GENERAL_FAST_MODEL: openai/gpt-4o-mini
+      GENERAL_QUALITY_MODEL: openai/gpt-4o
+      CODING_FAST_MODEL: openai/gpt-4o-mini
+      CODING_FRONTIER_MODEL: openai/gpt-4o
+      CHEAP_BATCH_MODEL: openai/gpt-4o-mini
+      GENERAL_FAST_API_BASE: http://mock-provider:8090/v1
+      GENERAL_QUALITY_API_BASE: http://mock-provider:8090/v1
+      CODING_FAST_API_BASE: http://mock-provider:8090/v1
+      CODING_FRONTIER_API_BASE: http://mock-provider:8090/v1
+      CHEAP_BATCH_API_BASE: http://mock-provider:8090/v1
+      GENERAL_FAST_API_KEY: mock-provider-key
+      GENERAL_QUALITY_API_KEY: mock-provider-key
+      CODING_FAST_API_KEY: mock-provider-key
+      CODING_FRONTIER_API_KEY: mock-provider-key
+      CHEAP_BATCH_API_KEY: mock-provider-key
+      # Aliases in this overlay are direct OpenAI-compatible routes.
+      OPENROUTER_POLICY_MODELS: openrouter/*
+    depends_on:
+      mock-provider:
+        condition: service_healthy
+
+  mock-provider:
+    profiles: [mock]
+    build:
+      context: ..
+      dockerfile: tests/e2e/mock_provider/Dockerfile
+    image: enterprise-ai-mock-provider:0.1.0
+    environment:
+      MOCK_PROVIDER_API_KEY: mock-provider-key
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]

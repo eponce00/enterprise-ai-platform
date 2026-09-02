@@ -1,0 +1,65 @@
+model_list:
+  - model_name: general-fast
+    litellm_params:
+      model: os.environ/GENERAL_FAST_MODEL
+      api_base: os.environ/GENERAL_FAST_API_BASE
+      api_key: os.environ/GENERAL_FAST_API_KEY
+
+  - model_name: general-quality
+    litellm_params:
+      model: os.environ/GENERAL_QUALITY_MODEL
+      api_base: os.environ/GENERAL_QUALITY_API_BASE
+      api_key: os.environ/GENERAL_QUALITY_API_KEY
+
+  - model_name: coding-fast
+    litellm_params:
+      model: os.environ/CODING_FAST_MODEL
+      api_base: os.environ/CODING_FAST_API_BASE
+      api_key: os.environ/CODING_FAST_API_KEY
+
+  - model_name: coding-frontier
+    litellm_params:
+      model: os.environ/CODING_FRONTIER_MODEL
+      api_base: os.environ/CODING_FRONTIER_API_BASE
+      api_key: os.environ/CODING_FRONTIER_API_KEY
+
+  - model_name: cheap-batch
+    litellm_params:
+      model: os.environ/CHEAP_BATCH_MODEL
+      api_base: os.environ/CHEAP_BATCH_API_BASE
+      api_key: os.environ/CHEAP_BATCH_API_KEY
+
+litellm_settings:
+  drop_params: true
+  turn_off_message_logging: true
+  redact_user_api_key_info: true
+  set_verbose: false
+  enable_post_custom_auth_checks: true
+  callbacks:
+    - gateway.auth.privacy_hook.enterprise_policy_hook
+  success_callback:
+    - prometheus
+  failure_callback:
+    - prometheus
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  custom_auth: gateway.auth.oidc_auth.user_api_key_auth
+  custom_auth_run_common_checks: true
+  # Budget/model policy is a security boundary: database uncertainty must not
+  # silently turn a managed team into an unrestricted token-derived team.
+  allow_requests_on_db_unavailable: false
+  fail_closed_budget_enforcement: true
+  store_model_in_db: false
+  store_prompts_in_spend_logs: false
+  disable_spend_logs: false
+
+router_settings:
+  num_retries: 1
+  retry_after: 1
+  allowed_fails: 2
+  cooldown_time: 30
+  fallbacks:
+    - general-fast:
+        - general-quality

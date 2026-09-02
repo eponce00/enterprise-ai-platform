@@ -1,0 +1,21 @@
+{
+  "name": "enterprise-ai-platform",
+  "private": true,
+  "workspaces": [
+    "clients/opencode",
+    "services/examples/typescript"
+  ],
+  "scripts": {
+    "build": "npm run build -w clients/opencode",
+    "test": "npm run test -w clients/opencode",
+    "test:opencode-smoke": "node scripts/opencode-smoke.mjs",
+    "lint": "npm run lint -w clients/opencode",
+    "typecheck": "npm run typecheck -w clients/opencode && npm run typecheck -w services/examples/typescript"
+  },
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "devDependencies": {
+    "opencode-ai": "1.18.26"
+  }
+}

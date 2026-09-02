@@ -1,0 +1,13 @@
+# Test-only overlay used to prove that a stable alias can change provider
+# adapters without a client source or client configuration change.
+services:
+  gateway:
+    environment:
+      GENERAL_FAST_MODEL: ${PROVIDER_SWITCH_MODEL:-openrouter/openai/gpt-4o-mini}
+      GENERAL_FAST_API_BASE: http://mock-provider:8090/v1
+      GENERAL_FAST_API_KEY: mock-provider-key
+      # Make the configured general-fast fallback deterministically fail in
+      # this overlay. A green probe therefore proves the selected primary
+      # adapter worked rather than silently succeeding through fallback.
+      GENERAL_QUALITY_API_KEY: provider-switch-fallback-disabled
+      OPENROUTER_POLICY_MODELS: ${PROVIDER_SWITCH_POLICY_MODELS:-openrouter/*,general-fast}
