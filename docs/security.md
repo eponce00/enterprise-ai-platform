@@ -14,7 +14,8 @@
   discovery-issuer pinning, cached JWKS, and rotation refresh.
 - OIDC environment settings and the identity policy are validated before the
   gateway process starts serving or reports healthy; unresolved database and
-  master-key references also stop startup.
+  master-key references using literal `$NAME`, Compose-style `${NAME...}`, or
+  `os.environ/NAME` forms also stop startup.
 - PKCE, random state, loopback-only callback, short callback timeout, and exact
   gateway origin/path checking before bearer attachment.
 - Unknown identity/model mapping denial, server-side common checks, and explicit

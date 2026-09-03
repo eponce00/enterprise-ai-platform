@@ -64,7 +64,9 @@ obtain legal review.
 In the production environment file, set `POSTGRES_PASSWORD` to the raw database
 password used by the PostgreSQL container and set `DATABASE_URL` separately with
 RFC 3986 percent-encoding for reserved username/password characters. Do not
-construct a URI by interpolating an arbitrary raw password.
+construct a URI by interpolating an arbitrary raw password. Secret injection
+must supply final values, not literal `$NAME`, `${NAME}`, or `os.environ/NAME`
+references; the gateway rejects those forms before startup.
 
 Before starting or rolling production gateways, make `catalog/generated/`
 writable by the non-root UID used by the promoted image, then publish a fresh

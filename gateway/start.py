@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -28,6 +29,13 @@ _ALTERNATE_CONFIG_SOURCE_ENV = frozenset(
         "LITELLM_CONFIG_BUCKET_TYPE",
         "WORKER_CONFIG",
     }
+)
+_UNRESOLVED_ENV_REFERENCE = re.compile(
+    r"(?:"
+    r"\$[A-Za-z_][A-Za-z0-9_]*"
+    r"|\$\{[A-Za-z_][A-Za-z0-9_]*(?:(?::?[-+?=])[^{}]*)?\}"
+    r"|os\.environ/[A-Za-z_][A-Za-z0-9_]*"
+    r")"
 )
 
 
@@ -85,6 +93,10 @@ def validate_auth_configuration() -> None:
         value = os.getenv(name)
         if value is None or not value.strip() or value != value.strip():
             raise SettingsError(f"{name} must be set to a non-empty, trimmed value")
+        # DATABASE_URL can embed a forgotten password reference, and an opaque
+        # admin secret should never contain an unexpanded shell/Compose token.
+        if _UNRESOLVED_ENV_REFERENCE.search(value):
+            raise SettingsError(f"{name} must be resolved before startup")
     OIDCSettings.from_env()
     gateway = GatewaySettings.from_env()
     PolicyEngine.from_file(gateway.policy_file)

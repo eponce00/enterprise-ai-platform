@@ -250,9 +250,18 @@ def test_start_wrapper_rejects_invalid_oidc_settings_before_serving(
         ("DATABASE_URL", None),
         ("DATABASE_URL", ""),
         ("DATABASE_URL", "   "),
+        ("DATABASE_URL", "$DATABASE_URL"),
+        ("DATABASE_URL", "${DATABASE_URL}"),
+        ("DATABASE_URL", "${DATABASE_URL:?set DATABASE_URL}"),
+        ("DATABASE_URL", "postgresql://user:${POSTGRES_PASSWORD}@db/litellm"),
+        ("DATABASE_URL", "os.environ/DATABASE_URL"),
         ("LITELLM_MASTER_KEY", None),
         ("LITELLM_MASTER_KEY", ""),
         ("LITELLM_MASTER_KEY", " test-key"),
+        ("LITELLM_MASTER_KEY", "$ADMIN_SECRET"),
+        ("LITELLM_MASTER_KEY", "${ADMIN_SECRET:-change-me}"),
+        ("LITELLM_MASTER_KEY", "prefix-${ADMIN_SECRET:=change-me}"),
+        ("LITELLM_MASTER_KEY", "os.environ/LITELLM_MASTER_KEY"),
     ],
 )
 def test_start_wrapper_requires_resolved_database_and_master_key_settings(
@@ -269,3 +278,24 @@ def test_start_wrapper_requires_resolved_database_and_master_key_settings(
 
     with pytest.raises(ValueError, match=name):
         validate_auth_configuration()
+
+
+@pytest.mark.parametrize(
+    ("database_url", "master_key"),
+    [
+        ("postgresql://user:p%24%7BPOSTGRES_PASSWORD%7D@db/litellm", "test-only-master-key"),
+        ("postgresql://user:password@db/litellm", "sk-generated-$-literal-{brace}"),
+    ],
+)
+def test_start_wrapper_allows_resolved_literal_auth_settings(
+    database_url: str,
+    master_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.setenv("LITELLM_MASTER_KEY", master_key)
+    monkeypatch.setenv("OIDC_ISSUER_URL", "https://idp.example")
+    monkeypatch.setenv("OIDC_AUDIENCE", "enterprise-ai-gateway")
+    monkeypatch.setenv("OIDC_POLICY_FILE", str(Path(__file__).parents[1] / "catalog" / "policy.yaml"))
+
+    validate_auth_configuration()
