@@ -18,7 +18,12 @@ server {
     server_name ai-gateway.example.com;
     access_log /var/log/nginx/enterprise-ai-access.log enterprise_ai_safe;
     error_log /var/log/nginx/enterprise-ai-error.log warn;
-    return 308 https://$host$request_uri;
+
+    if ($host != $server_name) {
+        return 421;
+    }
+
+    return 308 https://$server_name$request_uri;
 }
 
 server {
@@ -43,17 +48,58 @@ server {
     access_log /var/log/nginx/enterprise-ai-access.log enterprise_ai_safe;
     error_log /var/log/nginx/enterprise-ai-error.log warn;
 
-    # Publish only the API calls validated by this release. Do not proxy the
-    # rest of LiteLLM's /v1 surface: some routes create or manage shared
-    # provider-side resources and require separate policy/privacy review.
-    location ~ ^/v1/(models|chat/completions)$ {
+    # This is also the default virtual host when deployed alone. Reject an
+    # unknown Host instead of reflecting it into forwarding metadata.
+    if ($host != $server_name) {
+        return 421;
+    }
+
+    # Publish only the exact path-and-method pairs validated by this release.
+    # A return-only `if` is safe here and prevents wrong-method requests from
+    # reaching LiteLLM. Do not proxy the rest of its /v1 surface: some routes
+    # create or manage shared provider-side resources and require separate
+    # policy/privacy review.
+    location = /v1/models {
+        if ($request_method != GET) {
+            add_header Allow "GET" always;
+            return 405;
+        }
+
         proxy_pass http://enterprise_ai_gateway;
         proxy_http_version 1.1;
 
         # Overwrite, rather than trust, client-supplied forwarding metadata.
-        proxy_set_header Host $host;
+        proxy_set_header Host $server_name;
         proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Host $server_name;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_set_header Connection "";
+
+        # Required for chat-completion token streaming/SSE. Tune the idle
+        # timeout to policy.
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        gzip off;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 3600s;
+        proxy_read_timeout 3600s;
+    }
+
+    location = /v1/chat/completions {
+        if ($request_method != POST) {
+            add_header Allow "POST" always;
+            return 405;
+        }
+
+        proxy_pass http://enterprise_ai_gateway;
+        proxy_http_version 1.1;
+
+        # Overwrite, rather than trust, client-supplied forwarding metadata.
+        proxy_set_header Host $server_name;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $server_name;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Request-ID $request_id;
         proxy_set_header Connection "";

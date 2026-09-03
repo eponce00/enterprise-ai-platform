@@ -80,12 +80,13 @@ Required controls:
 - preserve long-lived SSE responses by disabling response buffering and setting
   an appropriately long idle timeout;
 - overwrite forwarding headers at the trusted edge; do not trust client-supplied
-  identity headers;
+  identity or host headers, and reject requests for unknown hostnames;
 - cap request-body size and connection/header timeouts without imposing a short
   timeout on legitimate model streams;
 - keep health and Prometheus endpoints private;
-- publish only the exact `/v1/models` and `/v1/chat/completions` endpoints
-  validated by this release, deny every other `/v1/` route, and keep LiteLLM
+- publish only `GET /v1/models` and `POST /v1/chat/completions`, the exact
+  path-and-method pairs validated by this release; deny every other `/v1/`
+  request, and keep LiteLLM
   management, spend, team, and key routes on the private loopback listener;
 - ensure access logs exclude `Authorization`, cookies, request/response bodies,
   prompts, completions, provider credentials, raw request lines, query strings,
