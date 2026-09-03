@@ -11,6 +11,7 @@ import fnmatch
 import hashlib
 import hmac
 import logging
+import math
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -36,6 +37,9 @@ _runtime_model_fallbacks: dict[str, tuple[str, ...]] | None = None
 
 _DEFAULT_RUNTIME_CONFIG = "/tmp/enterprise-ai-litellm.yaml"  # noqa: S108 - shared non-sensitive runtime config
 _FALLBACK_FIELDS = ("fallbacks", "context_window_fallbacks", "content_policy_fallbacks")
+_ALLOWED_RUNTIME_TOP_LEVEL_FIELDS = frozenset({"general_settings", "litellm_settings", "model_list", "router_settings"})
+_ALLOWED_MODEL_ENTRY_FIELDS = frozenset({"litellm_params", "model_info", "model_name"})
+_ALLOWED_LITELLM_PARAMS = frozenset({"api_base", "api_key", "base_url", "custom_llm_provider", "model"})
 _OIDC_DATA_PLANE_ROUTES = frozenset({("GET", "/v1/models"), ("POST", "/v1/chat/completions")})
 _MASTER_KEY_MANAGEMENT_ROUTES = frozenset(
     {
@@ -50,16 +54,83 @@ _UNSUPPORTED_DEPLOYMENT_ROUTING_FIELDS = frozenset(
         *_FALLBACK_FIELDS,
         "azure",
         "completion_model",
+        "configurable_clientside_auth_params",
         "default_fallbacks",
         "deployment_id",
         "model_group_alias",
         "model_list",
+        "models",
+        "route",
+        "routing_strategy",
         "router_settings_override",
         "silent_model",
         "specific_deployment",
         "user_config",
     )
 )
+_ALLOWED_MODEL_INFO_FIELDS = frozenset({"input_cost_per_token", "output_cost_per_token"})
+_ALLOWED_LITELLM_SETTINGS = frozenset(
+    {
+        "callbacks",
+        "drop_params",
+        "enable_post_custom_auth_checks",
+        "failure_callback",
+        "global_disable_no_log_param",
+        "redact_user_api_key_info",
+        "set_verbose",
+        "success_callback",
+        "turn_off_message_logging",
+    }
+)
+_ALLOWED_GENERAL_SETTINGS = frozenset(
+    {
+        "allow_requests_on_db_unavailable",
+        "custom_auth",
+        "custom_auth_run_common_checks",
+        "database_url",
+        "disable_spend_logs",
+        "fail_closed_budget_enforcement",
+        "master_key",
+        "store_model_in_db",
+        "store_prompts_in_spend_logs",
+        "supported_db_objects",
+        "user_api_key_cache_ttl",
+    }
+)
+_ALLOWED_ROUTER_SETTINGS = frozenset(
+    {
+        *_FALLBACK_FIELDS,
+        "allowed_fails",
+        "cooldown_time",
+        "num_retries",
+        "retry_after",
+    }
+)
+_REQUIRED_LITELLM_SETTINGS: dict[str, object] = {
+    "callbacks": ["gateway.auth.privacy_hook.enterprise_policy_hook"],
+    "drop_params": True,
+    "enable_post_custom_auth_checks": True,
+    "failure_callback": ["prometheus"],
+    "global_disable_no_log_param": True,
+    "redact_user_api_key_info": True,
+    "set_verbose": False,
+    "success_callback": ["prometheus"],
+    "turn_off_message_logging": True,
+}
+_REQUIRED_GENERAL_SETTINGS: dict[str, object] = {
+    "allow_requests_on_db_unavailable": False,
+    "custom_auth": "gateway.auth.oidc_auth.user_api_key_auth",
+    "custom_auth_run_common_checks": True,
+    "database_url": "os.environ/DATABASE_URL",
+    "disable_spend_logs": False,
+    "fail_closed_budget_enforcement": True,
+    "master_key": "os.environ/LITELLM_MASTER_KEY",
+    "store_model_in_db": False,
+    "store_prompts_in_spend_logs": False,
+    "supported_db_objects": [],
+}
+_ROUTER_INTEGER_LIMITS = {"allowed_fails": (0, 100), "num_retries": (0, 10)}
+_ROUTER_DURATION_LIMITS = {"cooldown_time": (0.0, 3600.0), "retry_after": (0.0, 300.0)}
 _CLIENT_ROUTING_FIELDS = frozenset(
     (
         *_FALLBACK_FIELDS,
@@ -69,15 +140,20 @@ _CLIENT_ROUTING_FIELDS = frozenset(
         "base_url",
         "api_key",
         "user_config",
+        "configurable_clientside_auth_params",
         "custom_llm_provider",
         "specific_deployment",
         "deployment_id",
         "model_group",
         "model_list",
+        "models",
         "completion_model",
+        "route",
+        "routing_strategy",
         "azure",
     )
 )
+_PROVIDER_PAYLOAD_ROUTING_FIELDS = _CLIENT_ROUTING_FIELDS | {"model"}
 
 
 class _RuntimeModelConfigError(RuntimeError):
@@ -122,6 +198,11 @@ def _load_runtime_models() -> tuple[tuple[str, ...], dict[str, str], dict[str, t
 
     if not isinstance(document, Mapping):
         raise _RuntimeModelConfigError("LiteLLM runtime config must be a mapping")
+    unsupported_top_level = set(document).difference(_ALLOWED_RUNTIME_TOP_LEVEL_FIELDS)
+    if unsupported_top_level:
+        names = ", ".join(sorted(str(field) for field in unsupported_top_level))
+        raise _RuntimeModelConfigError(f"LiteLLM runtime config contains unreviewed top-level fields: {names}")
+    _validate_runtime_sections(document)
     model_list = document.get("model_list")
     if not isinstance(model_list, list) or not model_list:
         raise _RuntimeModelConfigError("LiteLLM runtime config must contain a non-empty model_list")
@@ -132,20 +213,61 @@ def _load_runtime_models() -> tuple[tuple[str, ...], dict[str, str], dict[str, t
     for index, entry in enumerate(model_list):
         if not isinstance(entry, Mapping):
             raise _RuntimeModelConfigError(f"model_list entry {index} must be a mapping")
+        unsupported_entry_fields = set(entry).difference(_ALLOWED_MODEL_ENTRY_FIELDS)
+        if unsupported_entry_fields:
+            names = ", ".join(sorted(str(field) for field in unsupported_entry_fields))
+            raise _RuntimeModelConfigError(f"model_list entry {index} contains unreviewed fields: {names}")
         model_name = entry.get("model_name")
         if not isinstance(model_name, str) or not model_name or model_name != model_name.strip():
             raise _RuntimeModelConfigError(f"model_list entry {index} has an invalid model_name")
-        if any(character in model_name for character in "*?[]"):
+        if any(character in model_name for character in "*?[],"):
             raise _RuntimeModelConfigError(f"model_list entry {index} has a non-exact model_name")
+        if len(model_name) == 64 and all(character in "0123456789abcdef" for character in model_name):
+            raise _RuntimeModelConfigError(f"model_list entry {index} collides with the deployment ID namespace")
         params = entry.get("litellm_params")
         if not isinstance(params, Mapping):
             raise _RuntimeModelConfigError(f"model_list entry {index} has invalid litellm_params")
+        unreviewed_params = set(params).difference(_ALLOWED_LITELLM_PARAMS)
+        if unreviewed_params:
+            names = ", ".join(sorted(str(field) for field in unreviewed_params))
+            raise _RuntimeModelConfigError(f"model_list entry {index} has unreviewed litellm_params: {names}")
+        if "api_key" in params:
+            _resolve_runtime_value(params["api_key"], index=index, field="api_key")
+        model_info = entry.get("model_info")
+        if model_info is not None:
+            if not isinstance(model_info, Mapping):
+                raise _RuntimeModelConfigError(f"model_list entry {index} has invalid model_info")
+            unsupported_model_info = set(model_info).difference(_ALLOWED_MODEL_INFO_FIELDS)
+            if unsupported_model_info:
+                raise _RuntimeModelConfigError(
+                    f"model_list entry {index} uses unreviewed model_info fields: "
+                    + ", ".join(sorted(str(field) for field in unsupported_model_info))
+                )
+            for cost_field in _ALLOWED_MODEL_INFO_FIELDS:
+                if cost_field not in model_info:
+                    continue
+                cost = model_info[cost_field]
+                if not _is_valid_model_cost(cost):
+                    raise _RuntimeModelConfigError(f"model_list entry {index} has invalid model_info.{cost_field}")
+            configured_cost_fields = set(model_info).intersection(_ALLOWED_MODEL_INFO_FIELDS)
+            if configured_cost_fields and configured_cost_fields != _ALLOWED_MODEL_INFO_FIELDS:
+                raise _RuntimeModelConfigError(f"model_list entry {index} must declare both model_info cost fields")
         target = _resolve_runtime_value(params.get("model"), index=index, field="model")
-        deployment_routing_fields = _UNSUPPORTED_DEPLOYMENT_ROUTING_FIELDS.intersection(params)
+        if target.startswith("auto_router/"):
+            raise _RuntimeModelConfigError(f"model_list entry {index} uses a strategy-router model target")
+        deployment_routing_fields = set(_UNSUPPORTED_DEPLOYMENT_ROUTING_FIELDS.intersection(params))
+        deployment_routing_fields.update(
+            field
+            for field in params
+            if isinstance(field, str)
+            and field.startswith(("adaptive_router_", "auto_router_", "complexity_router_", "quality_router_"))
+        )
         if deployment_routing_fields:
             raise _RuntimeModelConfigError(
                 f"model_list entry {index} uses unsupported deployment-level routing controls"
             )
+        if _unsafe_extra_body(params.get("extra_body")):
+            raise _RuntimeModelConfigError(f"model_list entry {index} uses unsupported extra_body routing controls")
         provider_value = params.get("custom_llm_provider")
         provider = (
             _resolve_runtime_value(provider_value, index=index, field="custom_llm_provider").lower()
@@ -160,6 +282,7 @@ def _load_runtime_models() -> tuple[tuple[str, ...], dict[str, str], dict[str, t
         backend = "openrouter" if target_is_openrouter or provider == "openrouter" else "direct"
         if "api_base" in params and "base_url" in params:
             raise _RuntimeModelConfigError(f"model_list entry {index} has ambiguous API base configuration")
+        has_explicit_api_base = False
         for api_base_field in ("api_base", "base_url"):
             api_base_value = params.get(api_base_field)
             if api_base_value is None:
@@ -174,15 +297,21 @@ def _load_runtime_models() -> tuple[tuple[str, ...], dict[str, str], dict[str, t
             if (
                 parsed_api_base.scheme not in {"http", "https"}
                 or not api_host
+                or not api_host.isascii()
                 or parsed_api_base.username is not None
                 or parsed_api_base.password is not None
             ):
                 raise _RuntimeModelConfigError(f"model_list entry {index} has invalid {api_base_field}")
+            has_explicit_api_base = True
             is_openrouter_host = api_host == "openrouter.ai" or api_host.endswith(".openrouter.ai")
+            if is_openrouter_host and parsed_api_base.scheme != "https":
+                raise _RuntimeModelConfigError(f"model_list entry {index} must use HTTPS for the OpenRouter API")
             if is_openrouter_host and backend != "openrouter":
                 raise _RuntimeModelConfigError(
                     f"model_list entry {index} uses the OpenRouter API without the OpenRouter model adapter"
                 )
+        if not has_explicit_api_base:
+            raise _RuntimeModelConfigError(f"model_list entry {index} must declare api_base or base_url")
         prior_backend = backends.get(model_name)
         if prior_backend is not None and prior_backend != backend:
             raise _RuntimeModelConfigError(f"model {model_name!r} mixes OpenRouter and direct deployments")
@@ -199,16 +328,120 @@ def _load_runtime_models() -> tuple[tuple[str, ...], dict[str, str], dict[str, t
     return _runtime_models, _runtime_model_backends, _runtime_model_fallbacks
 
 
+def _validate_runtime_sections(document: Mapping[str, Any]) -> None:
+    for section_name, allowed_fields in (
+        ("litellm_settings", _ALLOWED_LITELLM_SETTINGS),
+        ("general_settings", _ALLOWED_GENERAL_SETTINGS),
+        ("router_settings", _ALLOWED_ROUTER_SETTINGS),
+    ):
+        section = document.get(section_name)
+        if section is None:
+            if section_name in {"litellm_settings", "general_settings"}:
+                raise _RuntimeModelConfigError(f"LiteLLM runtime config is missing required {section_name}")
+            continue
+        if not isinstance(section, Mapping):
+            raise _RuntimeModelConfigError(f"LiteLLM {section_name} must be a mapping")
+        unsupported = set(section).difference(allowed_fields)
+        if unsupported:
+            names = ", ".join(sorted(str(field) for field in unsupported))
+            raise _RuntimeModelConfigError(f"LiteLLM {section_name} contains unreviewed fields: {names}")
+
+    litellm_settings = document["litellm_settings"]
+    general_settings = document["general_settings"]
+    assert isinstance(litellm_settings, Mapping)
+    assert isinstance(general_settings, Mapping)
+    _validate_required_settings("litellm_settings", litellm_settings, _REQUIRED_LITELLM_SETTINGS)
+    _validate_required_settings("general_settings", general_settings, _REQUIRED_GENERAL_SETTINGS)
+    cache_ttl = general_settings.get("user_api_key_cache_ttl")
+    if isinstance(cache_ttl, bool) or not isinstance(cache_ttl, int) or not 1 <= cache_ttl <= 5:
+        raise _RuntimeModelConfigError(
+            "LiteLLM general_settings.user_api_key_cache_ttl must be an integer from 1 through 5"
+        )
+    router_settings = document.get("router_settings")
+    if isinstance(router_settings, Mapping):
+        _validate_router_settings(router_settings)
+
+
+def _validate_required_settings(
+    section_name: str,
+    section: Mapping[str, Any],
+    required: Mapping[str, object],
+) -> None:
+    for field, expected in required.items():
+        actual = section.get(field)
+        if type(actual) is not type(expected) or actual != expected:
+            raise _RuntimeModelConfigError(f"LiteLLM {section_name}.{field} must retain its secure value")
+
+
+def _validate_router_settings(section: Mapping[str, Any]) -> None:
+    for field, (integer_minimum, integer_maximum) in _ROUTER_INTEGER_LIMITS.items():
+        if field not in section:
+            continue
+        value = section[field]
+        if isinstance(value, bool) or not isinstance(value, int) or not integer_minimum <= value <= integer_maximum:
+            raise _RuntimeModelConfigError(
+                f"LiteLLM router_settings.{field} must be an integer from {integer_minimum} through {integer_maximum}"
+            )
+    for field, (duration_minimum, duration_maximum) in _ROUTER_DURATION_LIMITS.items():
+        if field not in section:
+            continue
+        value = section[field]
+        if not _is_finite_number_in_range(value, duration_minimum, duration_maximum):
+            raise _RuntimeModelConfigError(
+                f"LiteLLM router_settings.{field} must be a finite number from "
+                f"{duration_minimum:g} through {duration_maximum:g}"
+            )
+
+
+def _is_valid_model_cost(value: object) -> bool:
+    return _is_finite_number_in_range(value, 0, math.inf)
+
+
+def _is_finite_number_in_range(value: object, minimum: float, maximum: float) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        number = float(value)
+        return math.isfinite(number) and minimum <= number <= maximum
+    except OverflowError:
+        return False
+
+
+def _contains_provider_routing_control(value: object) -> bool:
+    if isinstance(value, Mapping):
+        return any(
+            key in _PROVIDER_PAYLOAD_ROUTING_FIELDS or _contains_provider_routing_control(nested)
+            for key, nested in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_provider_routing_control(item) for item in value)
+    return False
+
+
+def _unsafe_extra_body(value: object) -> bool:
+    if value is None:
+        return False
+    if not isinstance(value, Mapping):
+        return True
+    return _contains_provider_routing_control(value)
+
+
+def _has_request_provider_controls(body: Mapping[str, Any]) -> bool:
+    if body.get("provider") not in (None, {}):
+        return True
+    extra_body = body.get("extra_body")
+    return isinstance(extra_body, Mapping) and extra_body.get("provider") not in (None, {})
+
+
 def _resolve_runtime_value(value: object, *, index: int, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not value or value != value.strip():
         raise _RuntimeModelConfigError(f"model_list entry {index} has invalid {field}")
-    value = value.strip()
     prefix = "os.environ/"
     if not value.startswith(prefix):
         return value
     variable = value.removeprefix(prefix)
-    resolved = os.getenv(variable, "").strip()
-    if not variable or not resolved:
+    resolved = os.getenv(variable, "")
+    if not variable or variable != variable.strip() or not resolved or resolved != resolved.strip():
         raise _RuntimeModelConfigError(f"model_list entry {index} references unavailable {field} configuration")
     return resolved
 
@@ -371,13 +604,15 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         )
         decision = policy.resolve(identity)
         body = await _request_json(request)
-        if _CLIENT_ROUTING_FIELDS.intersection(body):
+        if _CLIENT_ROUTING_FIELDS.intersection(body) or _unsafe_extra_body(body.get("extra_body")):
             raise PolicyDenied("client-controlled provider routing is not allowed")
         model = str(body.get("model") or "")
         runtime_models, runtime_backends, runtime_fallbacks = _load_runtime_models()
         if model and model not in runtime_models:
             raise PolicyDenied(f"model {model!r} is not configured by the gateway runtime")
         if model:
+            if runtime_backends.get(model) != "openrouter" and _has_request_provider_controls(body):
+                raise PolicyDenied("provider controls are only allowed for OpenRouter routes")
             policy.authorize_model(decision, model)
             for fallback_model in runtime_fallbacks.get(model, ()):
                 try:

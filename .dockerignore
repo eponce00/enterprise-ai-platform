@@ -12,6 +12,7 @@ node_modules
 coverage.xml
 htmlcov
 catalog/generated
+tests/e2e/.state
 .env
 .env.*
 !.env.example

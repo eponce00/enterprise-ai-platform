@@ -258,6 +258,46 @@ def test_team_model_policy_denies_disallowed_alias(gateway_client: OpenAI) -> No
     assert error.value.status_code == 403
 
 
+@pytest.mark.parametrize(
+    "routing_fields",
+    [
+        {"models": ["unreviewed-model"]},
+        {"route": "unreviewed-model"},
+        {"routing_strategy": "least-busy"},
+        {"extra_body": {"model": "unreviewed-model"}},
+        {"extra_body": {"models": ["unreviewed-model"]}},
+        {"extra_body": {"route": "unreviewed-model"}},
+        {"extra_body": {"routing_strategy": "least-busy"}},
+        {"extra_body": {"nested": {"model": "unreviewed-model"}}},
+        {"extra_body": [["model", "unreviewed-model"]]},
+    ],
+    ids=[
+        "root-models",
+        "root-route",
+        "root-routing-strategy",
+        "extra-body-model",
+        "extra-body-models",
+        "extra-body-route",
+        "extra-body-routing-strategy",
+        "nested-extra-body-model",
+        "non-mapping-extra-body",
+    ],
+)
+def test_client_controlled_provider_routing_fails_closed(
+    gateway_client: OpenAI,
+    routing_fields: dict[str, object],
+) -> None:
+    with pytest.raises(APIStatusError) as error:
+        gateway_client.chat.completions.create(
+            model="general-fast",
+            messages=[{"role": "user", "content": "routing bypass must not reach the provider"}],
+            extra_body=routing_fields,
+        )
+
+    assert 400 <= error.value.status_code < 500
+    assert "routing" in str(error.value).lower()
+
+
 def test_human_identity_can_call_gateway(gateway_url: str, human_token: str) -> None:
     with OpenAI(base_url=gateway_url, api_key=human_token, timeout=20, max_retries=0) as client:
         response = client.chat.completions.create(

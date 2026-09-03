@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from gateway.catalog_config import RuntimeConfigError, render_runtime_config
-from gateway.start import prepare_litellm_args
+from gateway.start import prepare_litellm_args, reject_alternate_config_sources, validate_auth_configuration
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
 POLICY_FINGERPRINT = "a" * 64
@@ -106,6 +106,7 @@ def test_fresh_catalog_adds_sorted_priced_routes_and_preserves_static_routes(tmp
     assert models[2]["model_info"] == {"input_cost_per_token": 0.0, "output_cost_per_token": 0.0}
     assert models[3]["litellm_params"] == {
         "model": "openrouter/vendor/z-model",
+        "api_base": "https://openrouter.ai/api/v1",
         "api_key": "os.environ/OPENROUTER_API_KEY",
     }
     assert models[3]["model_info"]["input_cost_per_token"] == pytest.approx(0.00000125)
@@ -120,6 +121,7 @@ def test_fresh_catalog_adds_sorted_priced_routes_and_preserves_static_routes(tmp
         (json.dumps(_artifact([_model("vendor/model")], generated_at="2026-08-01T00:00:00Z")), "stale"),
         (json.dumps(_artifact([_model("vendor/model", prompt=float("nan"))])), "invalid"),
         (json.dumps(_artifact([_model("vendor/*")])), "invalid"),
+        (json.dumps(_artifact([_model("vendor/model,general-fast")])), "invalid"),
         (json.dumps(_artifact([_model("vendor/model")], policy_fingerprint="b" * 64)), "invalid"),
     ],
 )
@@ -196,3 +198,74 @@ def test_start_wrapper_rewrites_or_adds_config_argument(
 
     assert base == Path(expected_base)
     assert rewritten == expected_arguments
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "CONFIG_FILE_PATH",
+        "LITELLM_CONFIG_BUCKET_NAME",
+        "LITELLM_CONFIG_BUCKET_OBJECT_KEY",
+        "LITELLM_CONFIG_BUCKET_TYPE",
+        "WORKER_CONFIG",
+    ],
+)
+def test_start_wrapper_rejects_alternate_upstream_config_sources(
+    name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(name, "")
+
+    with pytest.raises(RuntimeConfigError, match=name):
+        reject_alternate_config_sources()
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("OIDC_ALLOW_HTTP", "sometimes", "must be a boolean"),
+        ("OIDC_ALLOWED_ALGORITHMS", "HS256", "only asymmetric"),
+        ("OIDC_JWKS_TTL_SECONDS", "not-an-integer", "must be an integer"),
+    ],
+)
+def test_start_wrapper_rejects_invalid_oidc_settings_before_serving(
+    name: str,
+    value: str,
+    message: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db.example/litellm")
+    monkeypatch.setenv("LITELLM_MASTER_KEY", "test-only-master-key")
+    monkeypatch.setenv("OIDC_ISSUER_URL", "https://idp.example")
+    monkeypatch.setenv("OIDC_AUDIENCE", "enterprise-ai-gateway")
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match=message):
+        validate_auth_configuration()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("DATABASE_URL", None),
+        ("DATABASE_URL", ""),
+        ("DATABASE_URL", "   "),
+        ("LITELLM_MASTER_KEY", None),
+        ("LITELLM_MASTER_KEY", ""),
+        ("LITELLM_MASTER_KEY", " test-key"),
+    ],
+)
+def test_start_wrapper_requires_resolved_database_and_master_key_settings(
+    name: str,
+    value: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db.example/litellm")
+    monkeypatch.setenv("LITELLM_MASTER_KEY", "test-only-master-key")
+    if value is None:
+        monkeypatch.delenv(name)
+    else:
+        monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match=name):
+        validate_auth_configuration()

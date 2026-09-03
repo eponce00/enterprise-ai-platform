@@ -12,6 +12,9 @@
 
 - Exact issuer/audience, asymmetric JWT signatures, time claims, optional scopes,
   discovery-issuer pinning, cached JWKS, and rotation refresh.
+- OIDC environment settings and the identity policy are validated before the
+  gateway process starts serving or reports healthy; unresolved database and
+  master-key references also stop startup.
 - PKCE, random state, loopback-only callback, short callback timeout, and exact
   gateway origin/path checking before bearer attachment.
 - Unknown identity/model mapping denial, server-side common checks, and explicit
@@ -19,13 +22,22 @@
   management-cache window. Spend-counter verification/reservation separately
   uses fail-closed budget enforcement.
 - OpenRouter ZDR/data-collection/provider restrictions overwrite weaker caller
-  values; tool calls require supporting provider endpoints. Clients cannot
-  override server-managed fallback routing, and configured fallback chains must
-  stay within one backend privacy class. Every reachable fallback is checked
+  values; tool calls require supporting provider endpoints. Reviewed caller
+  controls can only narrow the OpenRouter provider set or strengthen privacy;
+  unknown provider controls are denied. Direct routes reject OpenRouter-specific
+  controls. Clients cannot override server-managed model or fallback routing,
+  including through nested `extra_body` fields, and configured fallback chains
+  must stay within one backend privacy class. Every reachable fallback is checked
   against the caller's model grant before upstream dispatch. Bootstrap also
   clears database team-level router overrides and aliases; an empty DB-object
   allowlist keeps deployments/global routing source-controlled even if stale DB
   state attempts to re-enable model storage. Management-plane drift must alert.
+- The rendered LiteLLM startup document is a fail-closed policy boundary. Only
+  reviewed top-level sections, security settings, model-entry fields, deployment
+  parameters, and finite non-negative catalog costs are accepted. Environment
+  rewrites, alternate local/bucket config sources, credential indirection,
+  automatic routers, model aliases, and other unreviewed extension points stop
+  the gateway before it serves traffic.
 - Provider/admin secrets are absent from images, source, client config, and logs.
 - The master credential is accepted only on an explicit bootstrap/accounting
   route allowlist, is replaced with a non-secret audit alias after comparison,

@@ -10,6 +10,7 @@ from pathlib import Path
 from catalog.sync import CatalogPolicy, CatalogSyncError, policy_fingerprint
 from gateway.auth.oidc_auth import RuntimeModelPolicyError, validate_runtime_model_policy
 from gateway.auth.policy import PolicyEngine, PolicyError
+from gateway.auth.settings import GatewaySettings, OIDCSettings, SettingsError
 from gateway.catalog_config import RuntimeConfigError, render_runtime_config
 
 DEFAULT_BASE_CONFIG = "/app/gateway/litellm/config.yaml"
@@ -19,6 +20,15 @@ DEFAULT_CATALOG_POLICY = "/app/catalog-policy.yaml"
 # atomically before LiteLLM starts; no sensitive values are added by the renderer.
 DEFAULT_RUNTIME_CONFIG = "/tmp/enterprise-ai-litellm.yaml"  # noqa: S108
 DEFAULT_UPSTREAM_ENTRYPOINT = "/app/docker/prod_entrypoint.sh"
+_ALTERNATE_CONFIG_SOURCE_ENV = frozenset(
+    {
+        "CONFIG_FILE_PATH",
+        "LITELLM_CONFIG_BUCKET_NAME",
+        "LITELLM_CONFIG_BUCKET_OBJECT_KEY",
+        "LITELLM_CONFIG_BUCKET_TYPE",
+        "WORKER_CONFIG",
+    }
+)
 
 
 def prepare_litellm_args(
@@ -58,6 +68,28 @@ def prepare_litellm_args(
     return Path(configured), rewritten
 
 
+def reject_alternate_config_sources() -> None:
+    """Ensure upstream cannot replace the runtime document after validation."""
+
+    configured = sorted(name for name in _ALTERNATE_CONFIG_SOURCE_ENV if name in os.environ)
+    if configured:
+        raise RuntimeConfigError(
+            "alternate LiteLLM config-source environment variables are not allowed: " + ", ".join(configured)
+        )
+
+
+def validate_auth_configuration() -> None:
+    """Validate local OIDC and policy configuration before reporting healthy."""
+
+    for name in ("DATABASE_URL", "LITELLM_MASTER_KEY"):
+        value = os.getenv(name)
+        if value is None or not value.strip() or value != value.strip():
+            raise SettingsError(f"{name} must be set to a non-empty, trimmed value")
+    OIDCSettings.from_env()
+    gateway = GatewaySettings.from_env()
+    PolicyEngine.from_file(gateway.policy_file)
+
+
 def main(arguments: Sequence[str] | None = None) -> None:
     args = list(sys.argv[1:] if arguments is None else arguments)
     runtime_path = Path(os.getenv("LITELLM_RUNTIME_CONFIG", DEFAULT_RUNTIME_CONFIG))
@@ -67,6 +99,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
         raise SystemExit("APPROVED_CATALOG_MAX_AGE_SECONDS must be an integer") from exc
 
     try:
+        reject_alternate_config_sources()
         base_path, litellm_args = prepare_litellm_args(
             args,
             runtime_config=runtime_path,
@@ -80,9 +113,9 @@ def main(arguments: Sequence[str] | None = None) -> None:
             expected_policy_fingerprint=policy_fingerprint(catalog_policy),
             max_age_seconds=max_age_seconds,
         )
-        PolicyEngine.from_file(os.getenv("OIDC_POLICY_FILE", "/app/policy.yaml"))
+        validate_auth_configuration()
         validate_runtime_model_policy()
-    except (CatalogSyncError, PolicyError, RuntimeConfigError, RuntimeModelPolicyError) as exc:
+    except (CatalogSyncError, PolicyError, RuntimeConfigError, RuntimeModelPolicyError, SettingsError) as exc:
         raise SystemExit(f"gateway startup configuration failed: {exc}") from exc
 
     level = "info" if result.catalog_state in {"fresh", "missing"} else "warning"

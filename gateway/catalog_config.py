@@ -20,6 +20,7 @@ _OPENROUTER_MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/\S+$")
 _GLOB_META = frozenset("*?[]")
 _PER_MILLION = 1_000_000
 _MAX_FUTURE_SKEW_SECONDS = 300
+_OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 
 
 class RuntimeConfigError(RuntimeError):
@@ -162,7 +163,7 @@ def _routes_from_catalog(
             not isinstance(model_id, str)
             or len(model_id) > 256
             or not _OPENROUTER_MODEL_ID.fullmatch(model_id)
-            or any(character in model_id for character in _GLOB_META)
+            or any(character in model_id for character in (*_GLOB_META, ","))
         ):
             raise CatalogArtifactError(f"models[{index}].id is not a raw OpenRouter model ID")
         if model_id in seen:
@@ -183,6 +184,7 @@ def _routes_from_catalog(
                 "model_name": public_name,
                 "litellm_params": {
                     "model": public_name,
+                    "api_base": _OPENROUTER_API_BASE,
                     "api_key": "os.environ/OPENROUTER_API_KEY",
                 },
                 "model_info": {
